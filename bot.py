@@ -205,7 +205,3 @@ async def on_command_error(ctx, error):
 # =========================
 bot.run(config.DISCORD_TOKEN)
 
-import os
-
-token = os.getenv("TOKEN")
-bot.run(token)
