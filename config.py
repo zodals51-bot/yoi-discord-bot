@@ -12,3 +12,4 @@ LOSTARK_API_KEY = os.getenv("LOSTARK_API_KEY")
 GUILD_NAME = "요이"
 WAIT_ROLE = "인증대기"
 MEMBER_ROLE = "길드원"
+GUEST_ROLE = "외부인"  # 외부인 유저에게 줄 역할 이름
