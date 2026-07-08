@@ -2,7 +2,7 @@ import discord
 from discord.ext import commands
 import requests
 import config
-import re  # 큐브 입력을 파싱하기 위한 정규표현식 라이브러리
+import re
 
 # =========================
 # 봇 설정
@@ -161,7 +161,7 @@ class VerifyView(discord.ui.View):
 
 
 # =========================
-# 🔥 [신규 추가] 큐브 계산 모달 창
+# 🎲 [수정] 큐브 계산 모달 창
 # =========================
 class CubeCalculatorModal(discord.ui.Modal, title="🎲 2인 큐브 동기화 계산기"):
     my_tickets = discord.ui.TextInput(
@@ -177,10 +177,8 @@ class CubeCalculatorModal(discord.ui.Modal, title="🎲 2인 큐브 동기화 �
         required=True
     )
 
-    # 문자열에서 해금단계와 개수를 뽑아내는 헬퍼 함수
     def parse_tickets(self, text):
         result = {4: 0, 3: 0, 2: 0, 1: 0}
-        # "4해금 3", "3단계 2", "2해금2" 같은 패턴에서 숫자 쌍 매칭
         matches = re.findall(r'([1-4])[^\d]*(\d+)', text)
         for stage, count in matches:
             result[int(stage)] = int(count)
@@ -189,7 +187,6 @@ class CubeCalculatorModal(discord.ui.Modal, title="🎲 2인 큐브 동기화 �
     async def on_submit(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=False)
 
-        # 유저들의 입력값 파싱
         me = self.parse_tickets(self.my_tickets.value)
         partner = self.parse_tickets(self.partner_tickets.value)
 
@@ -198,7 +195,6 @@ class CubeCalculatorModal(discord.ui.Modal, title="🎲 2인 큐브 동기화 �
 
         has_data = False
 
-        # 4해금부터 1해금까지 연산
         for stage in [4, 3, 2, 1]:
             me_count = me[stage]
             partner_count = partner[stage]
@@ -208,7 +204,7 @@ class CubeCalculatorModal(discord.ui.Modal, title="🎲 2인 큐브 동기화 �
 
             stage_text = ""
 
-            # 1. 공통 3배(3장 빼기) 소모 계산
+            # 1. 공통 3배 소모 계산
             me_triples = me_count // 3
             partner_triples = partner_count // 3
             common_triples = min(me_triples, partner_triples)
@@ -218,18 +214,16 @@ class CubeCalculatorModal(discord.ui.Modal, title="🎲 2인 큐브 동기화 �
                 me_count -= common_triples * 3
                 partner_count -= common_triples * 3
 
-            # 2. 남은 짜투리 공통 1배(1장 녹이기) 소모 계산
+            # 2. 공통 1배 소모 계산
             common_singles = min(me_count, partner_count)
             if common_singles > 0:
                 stage_text += f"**💧 [1배 녹이기] 함께 {common_singles}회 진행**\n"
                 me_count -= common_singles
                 partner_count -= common_singles
 
-            # 3. 남은 잔여 티켓 알림
-            if me_count > 0:
-                stage_text += f"⚠️ 내 티켓이 **{me_count}장** 남습니다. (개별 소모 권장)\n"
-            if partner_count > 0:
-                stage_text += f"⚠️ 상대방 티켓이 **{partner_count}장** 남습니다. (개별 소모 권장)\n"
+            # 3. 📝 [변경 파트] 남은 잔여 티켓 상호 비교 안내
+            if me_count > 0 or partner_count > 0:
+                stage_text += f"⚠️ **남은 티켓:** 나 [{me_count}장] / 상대방 [{partner_count}장]\n"
 
             if stage_text:
                 embed.add_field(name=f"▶️ {stage}해금 에브니 큐브", value=stage_text, inline=False)
@@ -243,7 +237,7 @@ class CubeCalculatorModal(discord.ui.Modal, title="🎲 2인 큐브 동기화 �
 
 
 # =========================
-# 🔥 [신규 추가] 큐브 버튼 UI
+# 큐브 버튼 UI
 # =========================
 class CubeView(discord.ui.View):
     def __init__(self):
@@ -264,7 +258,7 @@ class CubeView(discord.ui.View):
 @bot.event
 async def on_ready():
     bot.add_view(VerifyView())
-    bot.add_view(CubeView())  # 큐브 뷰도 봇이 켜질 때 영속(Persistent)뷰로 등록
+    bot.add_view(CubeView())
     print(f"✅ 로그인 완료: {bot.user}")
 
 
@@ -283,7 +277,7 @@ async def 인증패널(ctx):
 
 
 # =========================
-# 🔥 [신규 추가] 명령어 - 큐브 패널
+# 명령어 - 큐브 패널
 # =========================
 @bot.command()
 async def 큐브계산기(ctx):
