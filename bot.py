@@ -388,7 +388,3 @@ async def 큐브계산기(ctx):
 
 
 bot.run(config.DISCORD_TOKEN)
-    await ctx.send(embed=embed, view=CubeView())
-
-
-bot.run(config.DISCORD_TOKEN)
