@@ -2,6 +2,7 @@ import discord
 from discord.ext import commands
 import requests
 import config
+import re  # 큐브 입력을 파싱하기 위한 정규표현식 라이브러리
 
 # =========================
 # 봇 설정
@@ -144,7 +145,7 @@ class VerifyModal(discord.ui.Modal, title="로스트아크 인증"):
 
 
 # =========================
-# 버튼 UI
+# 인증 버튼 UI
 # =========================
 class VerifyView(discord.ui.View):
     def __init__(self):
@@ -160,16 +161,115 @@ class VerifyView(discord.ui.View):
 
 
 # =========================
+# 🔥 [신규 추가] 큐브 계산 모달 창
+# =========================
+class CubeCalculatorModal(discord.ui.Modal, title="🎲 2인 큐브 동기화 계산기"):
+    my_tickets = discord.ui.TextInput(
+        label="내 티켓 정보",
+        placeholder="예시: 4해금 3, 3해금 8, 2해금 4",
+        style=discord.TextStyle.long,
+        required=True
+    )
+    partner_tickets = discord.ui.TextInput(
+        label="상대방 티켓 정보",
+        placeholder="예시: 4해금 2, 3해금 9, 2해금 7",
+        style=discord.TextStyle.long,
+        required=True
+    )
+
+    # 문자열에서 해금단계와 개수를 뽑아내는 헬퍼 함수
+    def parse_tickets(self, text):
+        result = {4: 0, 3: 0, 2: 0, 1: 0}
+        # "4해금 3", "3단계 2", "2해금2" 같은 패턴에서 숫자 쌍 매칭
+        matches = re.findall(r'([1-4])[^\d]*(\d+)', text)
+        for stage, count in matches:
+            result[int(stage)] = int(count)
+        return result
+
+    async def on_submit(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=False)
+
+        # 유저들의 입력값 파싱
+        me = self.parse_tickets(self.my_tickets.value)
+        partner = self.parse_tickets(self.partner_tickets.value)
+
+        embed = discord.Embed(title="📊 큐브 2인 최적 소모 동선", color=0x9B59B6)
+        embed.description = "두 분이 함께 파티를 맺고 아래 가이드대로 입장권을 소모해 보세요!\n─"
+
+        has_data = False
+
+        # 4해금부터 1해금까지 연산
+        for stage in [4, 3, 2, 1]:
+            me_count = me[stage]
+            partner_count = partner[stage]
+
+            if me_count == 0 and partner_count == 0:
+                continue
+
+            stage_text = ""
+
+            # 1. 공통 3배(3장 빼기) 소모 계산
+            me_triples = me_count // 3
+            partner_triples = partner_count // 3
+            common_triples = min(me_triples, partner_triples)
+
+            if common_triples > 0:
+                stage_text += f"**🔥 [3배 빼기] 함께 {common_triples}회 진행**\n"
+                me_count -= common_triples * 3
+                partner_count -= common_triples * 3
+
+            # 2. 남은 짜투리 공통 1배(1장 녹이기) 소모 계산
+            common_singles = min(me_count, partner_count)
+            if common_singles > 0:
+                stage_text += f"**💧 [1배 녹이기] 함께 {common_singles}회 진행**\n"
+                me_count -= common_singles
+                partner_count -= common_singles
+
+            # 3. 남은 잔여 티켓 알림
+            if me_count > 0:
+                stage_text += f"⚠️ 내 티켓이 **{me_count}장** 남습니다. (개별 소모 권장)\n"
+            if partner_count > 0:
+                stage_text += f"⚠️ 상대방 티켓이 **{partner_count}장** 남습니다. (개별 소모 권장)\n"
+
+            if stage_text:
+                embed.add_field(name=f"▶️ {stage}해금 에브니 큐브", value=stage_text, inline=False)
+                has_data = True
+
+        if not has_data:
+            await interaction.followup.send("❌ 입력 양식이 잘못되었거나 계산할 티켓 정보가 없습니다.")
+            return
+
+        await interaction.followup.send(embed=embed)
+
+
+# =========================
+# 🔥 [신규 추가] 큐브 버튼 UI
+# =========================
+class CubeView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(
+        label="큐브 정산하기",
+        style=discord.ButtonStyle.blurple,
+        custom_id="cube_calc_btn"
+    )
+    async def cube_calc(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(CubeCalculatorModal())
+
+
+# =========================
 # 봇 시작
 # =========================
 @bot.event
 async def on_ready():
     bot.add_view(VerifyView())
+    bot.add_view(CubeView())  # 큐브 뷰도 봇이 켜질 때 영속(Persistent)뷰로 등록
     print(f"✅ 로그인 완료: {bot.user}")
 
 
 # =========================
-# 인증 패널
+# 명령어 - 인증 패널
 # =========================
 @bot.command()
 async def 인증패널(ctx):
@@ -180,6 +280,19 @@ async def 인증패널(ctx):
     )
 
     await ctx.send(embed=embed, view=VerifyView())
+
+
+# =========================
+# 🔥 [신규 추가] 명령어 - 큐브 패널
+# =========================
+@bot.command()
+async def 큐브계산기(ctx):
+    embed = discord.Embed(
+        title="🎲 큐브 2인 동기화 매칭",
+        description="나와 상대방의 큐브 티켓 현황을 입력하면,\n같이 뺄 수 있는 최적의 판수를 딱딱 정해드립니다.",
+        color=0x2B2D31
+    )
+    await ctx.send(embed=embed, view=CubeView())
 
 
 # =========================
