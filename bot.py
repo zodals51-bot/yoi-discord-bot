@@ -3,6 +3,7 @@ from discord.ext import commands
 import requests
 import config
 import re
+import urllib.parse  # 한글 닉네임 변환을 위해 추가
 
 # =========================
 # 봇 설정
@@ -24,7 +25,10 @@ def get_character_info(character_name):
         "accept": "application/json",
         "authorization": f"bearer {clean_key}"
     }
-    url = f"https://developer-lostark.game.onstove.com/armories/characters/{character_name}/profiles"
+    
+    # 한글 닉네임 깨짐 방지 변환
+    encoded_name = urllib.parse.quote(character_name)
+    url = f"https://developer-lostark.game.onstove.com/armories/characters/{encoded_name}/profiles"
 
     try:
         r = requests.get(url, headers=headers)
@@ -44,7 +48,9 @@ def get_character_info(character_name):
 
 def get_full_armory(character_name):
     """로펙형 데이터 조회를 위한 주소 포맷 수정 및 에러 로그 강화 버전"""
-    url = f"https://developer-lostark.game.onstove.com/armories/characters/{character_name}"
+    # 한글 닉네임 깨짐 방지 변환
+    encoded_name = urllib.parse.quote(character_name)
+    url = f"https://developer-lostark.game.onstove.com/armories/characters/{encoded_name}"
     params = {
         "filters": "profiles|equipment|arkpassive|gems|cards"
     }
@@ -384,7 +390,6 @@ async def on_ready():
 async def on_message(message):
     if message.author.bot:
         return
-    # !정보 같은 텍스트 명령어를 강제 인식하도록 처리
     await bot.process_commands(message)
 
 
