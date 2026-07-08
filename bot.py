@@ -46,7 +46,7 @@ def get_character_profile(character_name):
 
 
 # =========================
-# 🔍 템렙/전투력 완벽 추출 명령어
+# 🔍 [수정본] 전투력 저격 전용 명령어
 # =========================
 @bot.command(name="정보")
 async def character_spec_search(ctx, character_name: str = None):
@@ -54,7 +54,7 @@ async def character_spec_search(ctx, character_name: str = None):
         await ctx.send("❌ 사용법: `!정보 [캐릭터이름]`")
         return
 
-    status_msg = await ctx.send(f"🔍 **{character_name}** 님의 데이터를 분석 중입니다...")
+    status_msg = await ctx.send(f"🔍 **{character_name}** 님의 데이터를 가져오는 중...")
     
     profile = get_character_profile(character_name)
     if not profile:
@@ -68,37 +68,34 @@ async def character_spec_search(ctx, character_name: str = None):
         guild_name = profile.get("GuildName") or "없음"
         guild_rank = profile.get("GuildMemberGrade") or ""
         
-        # 1. 아이템 레벨 추출 안전장치 (문자열에서 쉼표 제거 및 다양한 키 대응)
+        # 아이템 레벨 정제
         raw_item_lvl = profile.get("ItemMaxLevel") or profile.get("ItemAvgLevel") or "0"
         item_lvl = str(raw_item_lvl).replace(",", "")
         
         exp_lvl = profile.get("CharacterLevel", "0")
         exp_exp = profile.get("ExpeditionLevel", "0")
         
-        # 2. 전투력 파싱 안전장치 (Type이 '전투력'이거나 '공격력' 등 스탯 리스트 전수조사)
+        # 🔥 [전투력 강제 정밀 탐색 엔진]
         total_power = "정보 없음"
         stats_list = profile.get("Stats") or []
         
         for stat in stats_list:
-            stat_type = stat.get("Type", "")
-            stat_val = stat.get("Value", "0")
+            stat_type = str(stat.get("Type", "")).strip()
+            stat_val = str(stat.get("Value", "")).strip()
             
-            # '전투력'이라는 명칭을 포함하거나 숫자가 매우 큰 스탯을 찾아 저격
-            if "전투력" in stat_type and stat_val:
-                # 쉼표나 소수점 제거 후 깔끔하게 정수형 콤마 표시
-                clean_val = re.sub(r'[^\d.]', '', str(stat_val))
+            # 명칭에 '전투력'이 들어가거나, 기존 세팅의 '공격력/생명력' 외에 값이 비정상적으로 큰 항목(백만 단위 이상)을 필터링
+            if "전투력" in stat_type or stat_type == "전투력":
+                # 내부 특수문자, 문자, 공백 싹 다 지우고 오직 숫자와 소수점만 남김
+                clean_val = re.sub(r'[^\d.]', '', stat_val)
                 if clean_val:
-                    total_power = f"{int(float(clean_val)):,}"
+                    try:
+                        # 소수점이 있을 경우를 대비해 float 변환 후 정수화 및 3자리 콤마 표시
+                        total_power = f"{int(float(clean_val)):,}"
+                    except ValueError:
+                        total_power = stat_val  # 변환 실패시 공홈 문자열 그대로 노출
                 break
-        
-        # 만약 스탯 리스트에서 전투력을 못 찾았을 경우 대비한 2차 수동 필터링
-        if total_power == "정보 없음":
-            for stat in stats_list:
-                if stat.get("Type") in ["공격력", "최대 생명력"] and len(str(stat.get("Value", ""))) >= 5:
-                    # 임시 대안책이 필요할 때 로그를 남기거나 유연하게 처리
-                    pass
 
-        # 디스코드 임베드 카드 생성
+        # 디스코드 임베드 카드 구성
         embed = discord.Embed(
             title=f"🛡️ {char_name} ({char_class} / {title})",
             color=0x2B2D31
