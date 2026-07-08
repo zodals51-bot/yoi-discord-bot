@@ -135,37 +135,40 @@ class VerifyView(discord.ui.View):
 
 
 # =========================
-# 🎲 [대폭 수정] 큐브 믹스 효율 계산기 모달
+# 🎲 [기능 고도화] 2인 다캐릭 통합 큐브 계산기 모달
 # =========================
-class CubeCalculatorModal(discord.ui.Modal, title="🎲 2인 큐브 믹스(3배+1배) 효율 정산"):
+class CubeCalculatorModal(discord.ui.Modal, title="🎲 2인 다캐릭 통합 큐브 정산"):
     my_tickets = discord.ui.TextInput(
-        label="내 티켓 정보",
-        placeholder="예시: 3해금 8, 2해금 4",
+        label="내 모든 캐릭터 티켓 현황 (줄바꿈 가능)",
+        placeholder="예시:\n환수사 4해금 3 / 3해금 2\n도화가 3해금 4 / 2해금 4",
         style=discord.TextStyle.long,
         required=True
     )
     partner_tickets = discord.ui.TextInput(
-        label="상대방 티켓 정보",
-        placeholder="예시: 3해금 9, 2해금 7",
+        label="상대방 모든 캐릭터 티켓 현황 (줄바꿈 가능)",
+        placeholder="예시:\n죽창 3해금 9 / 1해금 3\n에몽 3해금 9",
         style=discord.TextStyle.long,
         required=True
     )
 
-    def parse_tickets(self, text):
-        result = {4: 0, 3: 0, 2: 0, 1: 0}
+    # 텍스트 전체에서 해당 단계의 숫자를 모두 찾아서 누적 합산하는 함수
+    def parse_and_sum_tickets(self, text):
+        total = {4: 0, 3: 0, 2: 0, 1: 0}
+        # 문장 전체에서 '단계/해금숫자'와 '보유수숫자' 쌍을 모두 찾아냅니다.
         matches = re.findall(r'([1-4])[^\d]*(\d+)', text)
         for stage, count in matches:
-            result[int(stage)] = int(count)
-        return result
+            total[int(stage)] += int(count) # 핵심: 기존 값에 계속 더해줌 (통합 누적)
+        return total
 
     async def on_submit(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=False)
 
-        me = self.parse_tickets(self.my_tickets.value)
-        partner = self.parse_tickets(self.partner_tickets.value)
+        # 여러 캐릭의 데이터를 해금별로 전수 합산
+        me = self.parse_and_sum_tickets(self.my_tickets.value)
+        partner = self.parse_and_sum_tickets(self.partner_tickets.value)
 
-        embed = discord.Embed(title="📊 큐브 2인 3배+1배 황금 밸런스 가이드", color=0xE91E63)
-        embed.description = "두 분의 보유 티켓을 연산하여 **가장 손해가 적은 믹스 조합**을 짰습니다.\n"
+        embed = discord.Embed(title="📊 2인 다캐릭 통합 큐브 정산 가이드", color=0x00FFFF)
+        embed.description = "두 분이 보유한 **모든 캐릭터의 티켓 합산량**을 기준으로 한 최적 동선입니다.\n"
 
         has_data = False
 
@@ -178,30 +181,32 @@ class CubeCalculatorModal(discord.ui.Modal, title="🎲 2인 큐브 믹스(3배+
 
             current_me = start_me
             current_partner = start_partner
-            stage_text = f"**시작 보유량:** 나 [{start_me}장] / 상대방 [{start_partner}장]\n"
+            
+            # 단계별 통합 현황 안내
+            stage_text = f"**통합 총량:** 나 [{start_me}장] vs 상대방 [{start_partner}장]\n"
 
-            # 1단계: 3배 빼기 공동 소모 계산
+            # 1. 3배 소모 계산
             me_triples = current_me // 3
             partner_triples = current_partner // 3
             common_triples = min(me_triples, partner_triples)
 
             if common_triples > 0:
-                stage_text += f"➡️ **[3배 소모]** 먼저 같이 **{common_triples}판** 빼기\n"
+                stage_text += f"➡️ **[3배 소모]** 캐릭 변경해가며 같이 **{common_triples}판** 진행\n"
                 current_me -= common_triples * 3
                 current_partner -= common_triples * 3
-                stage_text += f" └ *3배 소모 후 남은 티켓:* 나 [{current_me}장] / 상대방 [{current_partner}장]\n"
+                stage_text += f" └ *3배 소모 후 남은 총량:* 나 [{current_me}장] / 상대방 [{current_partner}장]\n"
             else:
-                stage_text += f"➡️ **[3배 소모]** 같이 3장씩 뺄 수 있는 조합이 없습니다.\n"
+                stage_text += f"➡️ **[3배 소모]** 3장씩 묶어 뺄 수 있는 공통 판수가 없습니다.\n"
 
-            # 2단계: 남은 잔여 티켓을 1배로 섞어 빼기 계산
+            # 2. 1배 믹스 소모 계산
             common_singles = min(current_me, current_partner)
             if common_singles > 0:
-                stage_text += f"➡️ **[1배 믹스]** 남은 조각으로 같이 **{common_singles}판** 녹이기\n"
+                stage_text += f"➡️ **[1배 믹스]** 남은 티켓으로 같이 **{common_singles}판** 녹이기\n"
                 current_me -= common_singles
                 current_partner -= common_singles
                 stage_text += f" └ *1배 믹스 후 최종 잔여:* 나 [{current_me}장] / 상대방 [{current_partner}장]\n"
 
-            # 3단계: 최종 결론 요약
+            # 3. 결론 요약
             stage_text += "✨ **추천 루틴:** "
             actions = []
             if common_triples > 0:
@@ -210,16 +215,16 @@ class CubeCalculatorModal(discord.ui.Modal, title="🎲 2인 큐브 믹스(3배+
                 actions.append(f"1배로 {common_singles}판")
             
             if actions:
-                stage_text += f"**{' ➡️ '.join(actions)}**을 섞어 가시는 게 가장 효율적입니다.\n"
+                stage_text += f"**{' ➡️ '.join(actions)}**을 같이 도는 것이 가장 깔끔합니다.\n"
             else:
-                stage_text += "두 분이서 같이 녹일 수 있는 티켓이 없습니다.\n"
+                stage_text += "함께 뺄 수 있는 조합이 없습니다.\n"
 
-            # 겉도는 조각 경고
+            # 남는 짜투리 경고
             if current_me > 0 or current_partner > 0:
-                stage_text += f"⚠️ *같이 돌 수 없어 남는 티켓:* 나 [{current_me}장] / 상대방 [{current_partner}장]\n"
+                stage_text += f"⚠️ *매칭 안 되고 남는 조각:* 나 [{current_me}장] / 상대방 [{current_partner}장]\n"
 
             if stage_text:
-                embed.add_field(name=f"▶️ {stage}해금 에브니 큐브 정산", value=stage_text + "─", inline=False)
+                embed.add_field(name=f"▶️ {stage}해금 에브니 큐브 통합 결과", value=stage_text + "─", inline=False)
                 has_data = True
 
         if not has_data:
@@ -265,8 +270,8 @@ async def 인증패널(ctx):
 @bot.command()
 async def 큐브계산기(ctx):
     embed = discord.Embed(
-        title="🎲 큐브 2인 동기화 매칭",
-        description="나와 상대방의 큐브 티켓 현황을 입력하면,\n3배와 1배를 어떻게 섞어 가야 녹아내리는지 알려드립니다.",
+        title="🎲 큐브 2인 다캐릭 통합 매칭",
+        description="나와 상대방의 모든 캐릭터 티켓 현황을 붙여넣으세요.\n전체 보유량을 합산하여 가장 효율적인 믹스 루틴을 짜드립니다.",
         color=0x2B2D31
     )
     await ctx.send(embed=embed, view=CubeView())
