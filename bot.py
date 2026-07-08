@@ -46,6 +46,19 @@ def get_character_info(character_name):
         return None
 
 
+def get_full_armory(character_name):
+    """로펙형 데이터 구성을 위해 프로필, 장비, 아크패시브, 보석, 카드를 통합 조회하는 함수"""
+    url = f"https://developer-lostark.game.onstove.com/armories/characters/{character_name}?filters=profiles%7Cequipment%7Carkpassive%7Cgems%7Ccards"
+    try:
+        r = requests.get(url, headers=headers)
+        if r.status_code != 200:
+            return None
+        return r.json()
+    except Exception as e:
+        print("종합 API 오류:", e)
+        return None
+
+
 # =========================
 # 인증 모달
 # =========================
@@ -151,19 +164,16 @@ class CubeCalculatorModal(discord.ui.Modal, title="🎲 2인 다캐릭 통합 �
         required=True
     )
 
-    # 텍스트 전체에서 해당 단계의 숫자를 모두 찾아서 누적 합산하는 함수
     def parse_and_sum_tickets(self, text):
         total = {4: 0, 3: 0, 2: 0, 1: 0}
-        # 문장 전체에서 '단계/해금숫자'와 '보유수숫자' 쌍을 모두 찾아냅니다.
         matches = re.findall(r'([1-4])[^\d]*(\d+)', text)
         for stage, count in matches:
-            total[int(stage)] += int(count) # 핵심: 기존 값에 계속 더해줌 (통합 누적)
+            total[int(stage)] += int(count)
         return total
 
     async def on_submit(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=False)
 
-        # 여러 캐릭의 데이터를 해금별로 전수 합산
         me = self.parse_and_sum_tickets(self.my_tickets.value)
         partner = self.parse_and_sum_tickets(self.partner_tickets.value)
 
@@ -182,10 +192,8 @@ class CubeCalculatorModal(discord.ui.Modal, title="🎲 2인 다캐릭 통합 �
             current_me = start_me
             current_partner = start_partner
             
-            # 단계별 통합 현황 안내
             stage_text = f"**통합 총량:** 나 [{start_me}장] vs 상대방 [{start_partner}장]\n"
 
-            # 1. 3배 소모 계산
             me_triples = current_me // 3
             partner_triples = current_partner // 3
             common_triples = min(me_triples, partner_triples)
@@ -198,7 +206,6 @@ class CubeCalculatorModal(discord.ui.Modal, title="🎲 2인 다캐릭 통합 �
             else:
                 stage_text += f"➡️ **[3배 소모]** 3장씩 묶어 뺄 수 있는 공통 판수가 없습니다.\n"
 
-            # 2. 1배 믹스 소모 계산
             common_singles = min(current_me, current_partner)
             if common_singles > 0:
                 stage_text += f"➡️ **[1배 믹스]** 남은 티켓으로 같이 **{common_singles}판** 녹이기\n"
@@ -206,7 +213,6 @@ class CubeCalculatorModal(discord.ui.Modal, title="🎲 2인 다캐릭 통합 �
                 current_partner -= common_singles
                 stage_text += f" └ *1배 믹스 후 최종 잔여:* 나 [{current_me}장] / 상대방 [{current_partner}장]\n"
 
-            # 3. 결론 요약
             stage_text += "✨ **추천 루틴:** "
             actions = []
             if common_triples > 0:
@@ -219,7 +225,6 @@ class CubeCalculatorModal(discord.ui.Modal, title="🎲 2인 다캐릭 통합 �
             else:
                 stage_text += "함께 뺄 수 있는 조합이 없습니다.\n"
 
-            # 남는 짜투리 경고
             if current_me > 0 or current_partner > 0:
                 stage_text += f"⚠️ *매칭 안 되고 남는 조각:* 나 [{current_me}장] / 상대방 [{current_partner}장]\n"
 
@@ -245,6 +250,111 @@ class CubeView(discord.ui.View):
     )
     async def cube_calc(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_modal(CubeCalculatorModal())
+
+
+# =========================
+# 🔍 [신규 추가] 로펙 스타일 캐릭터 스펙 검색 기능
+# =========================
+@bot.command(name="정보")
+async def character_spec_search(ctx, character_name: str = None):
+    if not character_name:
+        await ctx.send("❌ 사용법: `!정보 [캐릭터이름]` (예: `!정보 요이`)")
+        return
+
+    await ctx.send(f"🔍 **{character_name}** 님의 로펙형 스펙 세팅을 파싱하고 있습니다...")
+    
+    armory = get_full_armory(character_name)
+    if not armory or not armory.get("Profile"):
+        await ctx.send("❌ 캐릭터 정보를 가져오지 못했습니다. 이름을 정확히 입력하셨는지 확인해 주세요.")
+        return
+
+    profile = armory["Profile"]
+    equipment = armory.get("Equipment") or []
+    ark_passive = armory.get("ArkPassive") or {}
+    gems = armory.get("Gems") or {}
+    cards = armory.get("Cards") or {}
+
+    # 임베드 기본 디자인 생성 (로펙 다크 테마 느낌)
+    embed = discord.Embed(
+        title=f"🛡️ {profile['CharacterName']} 스펙 진단 결과",
+        description=f"**{profile['CharacterClassName']}** | 아이템 레벨: `Lv.{profile['ItemMaxLevel']}`",
+        color=0x2B2D31
+    )
+    
+    if profile.get("CharacterImage"):
+        embed.set_thumbnail(url=profile["CharacterImage"])
+
+    # 1. 능력치 및 기본 정보 (좌측 상단 레이아웃)
+    stats_text = ""
+    for stat in profile.get("Stats", []):
+        if stat.get("Type") in ["치명", "특화", "신속"]:
+            stats_text += f"• {stat['Type']}: `{stat['Value']}`\n"
+    if not stats_text:
+        stats_text = "• 특성 정보 없음"
+    embed.add_field(name="📊 주 스탯 및 전투 특성", value=stats_text, inline=True)
+
+    # 2. 아크 그리드 정보 (좌측 하단 레이아웃)
+    ark_text = ""
+    if ark_passive.get("IsAvailable"):
+        ark_text += "• 상태: **아크 패시브 가동 중**\n"
+        if ark_passive.get("Points"):
+            for pt in ark_passive["Points"]:
+                ark_text += f"- {pt.get('Name')}: `{pt.get('Value')} pt`\n"
+    else:
+        ark_text = "• 상태: 비활성화 (시즌 3 기존 세팅)"
+    embed.add_field(name="🧬 아크 그리드(패시브)", value=ark_text, inline=True)
+
+    # 3. 보석 장착 현황 요약 (상단 가로형 레이아웃)
+    gem_list = gems.get("Gems") or []
+    if gem_list:
+        gem_summary = {}
+        for g in gem_list:
+            lvl = g.get("Level", 0)
+            # 이름에 피해가 들어가면 멸화/겁화, 재사용 대기시간이면 홍염/작열
+            g_name = g.get("Name", "")
+            g_type = "멸/겁화" if "피해" in g_name else "홍/작열"
+            
+            key = f"T{g.get('Tier', 3)} {lvl}레벨 {g_type}"
+            gem_summary[key] = gem_summary.get(key, 0) + 1
+            
+        gem_text = "\n".join([f"• {k} × {v}개" for k, v in sorted(gem_summary.items(), reverse=True)])
+    else:
+        gem_text = "• 장착된 보석이 없습니다."
+    embed.add_field(name="💎 보석 장착 현황", value=gem_text, inline=False)
+
+    # 4. 장비 및 악세사리 라인업 요약 (중앙 격자 레이아웃)
+    weapon_info = "• 무기 정보 없음"
+    armor_count = 0
+    acc_list = []
+
+    for eq in equipment:
+        eq_type = eq.get("Type")
+        eq_name = eq.get("Name")
+        
+        if eq_type == "무기":
+            weapon_info = f"• {eq_name}"
+        elif eq_type in ["투구", "견갑", "상의", "하의", "장갑"]:
+            armor_count += 1
+        elif eq_type in ["목걸이", "귀걸이", "반지", "브레이서"]:
+            acc_list.append(f"• {eq_type}: {eq_name}")
+
+    equip_text = f"{weapon_info}\n• 방어구 장착: `{armor_count}/5` 부위"
+    embed.add_field(name="⚔️ 장비 / 아바타 요약", value=equip_text, inline=True)
+    
+    acc_text = "\n".join(acc_list) if acc_list else "• 악세사리 미착용"
+    embed.add_field(name="💍 악세사리 세팅", value=acc_text, inline=True)
+
+    # 5. 카드 보유 현황 요약 (좌측 중앙 레이아웃)
+    card_effects = cards.get("Effects") or []
+    if card_effects:
+        # 가장 아래쪽(가장 높은 활성화 조건 세트 효과)을 타이틀로 채택
+        active_set = card_effects[-1].get("Items", [dict()])[-1].get("Name", "세트 효과 없음")
+        card_text = f"• 활성화 효과: **{active_set}**"
+    else:
+        card_text = "• 활성화된 카드 세트 효과가 없습니다."
+    embed.add_field(name="🃏 카드 세트 효과", value=card_text, inline=False)
+
+    await ctx.send(embed=embed)
 
 
 # =========================
@@ -274,6 +384,10 @@ async def 큐브계산기(ctx):
         description="나와 상대방의 모든 캐릭터 티켓 현황을 붙여넣으세요.\n전체 보유량을 합산하여 가장 효율적인 믹스 루틴을 짜드립니다.",
         color=0x2B2D31
     )
+    await ctx.send(embed=embed, view=CubeView())
+
+
+bot.run(config.DISCORD_TOKEN)
     await ctx.send(embed=embed, view=CubeView())
 
 
