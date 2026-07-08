@@ -15,17 +15,15 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 
 
 # =========================
-# 로스트아크 API
+# 로스트아크 API 함수군
 # =========================
-clean_key = str(config.LOSTARK_API_KEY).strip().replace(" ", "").replace("bearer", "").strip()
-
-headers = {
-    "accept": "application/json",
-    "authorization": f"bearer {clean_key}"
-}
-
-
 def get_character_info(character_name):
+    """단일 프로필 조회 (인증용)"""
+    clean_key = str(config.LOSTARK_API_KEY).strip().replace(" ", "").replace("bearer", "").strip()
+    headers = {
+        "accept": "application/json",
+        "authorization": f"bearer {clean_key}"
+    }
     url = f"https://developer-lostark.game.onstove.com/armories/characters/{character_name}/profiles"
 
     try:
@@ -34,33 +32,51 @@ def get_character_info(character_name):
             return None
 
         data = r.json()
-
         return {
             "name": data["CharacterName"],
             "class": data["CharacterClassName"],
             "guild": data.get("GuildName") or ""
         }
-
     except Exception as e:
         print("API 오류:", e)
         return None
 
 
 def get_full_armory(character_name):
-    """로펙형 데이터 구성을 위해 프로필, 장비, 아크패시브, 보석, 카드를 통합 조회하는 함수"""
-    url = f"https://developer-lostark.game.onstove.com/armories/characters/{character_name}?filters=profiles%7Cequipment%7Carkpassive%7Cgems%7Ccards"
+    """로펙형 데이터 조회를 위한 주소 포맷 수정 및 에러 로그 강화 버전"""
+    url = f"https://developer-lostark.game.onstove.com/armories/characters/{character_name}"
+    params = {
+        "filters": "profiles|equipment|arkpassive|gems|cards"
+    }
+    
     try:
-        r = requests.get(url, headers=headers)
-        if r.status_code != 200:
+        clean_key = str(config.LOSTARK_API_KEY).strip().replace(" ", "").replace("bearer", "").strip()
+        current_headers = {
+            "accept": "application/json",
+            "authorization": f"bearer {clean_key}"
+        }
+        
+        r = requests.get(url, headers=current_headers, params=params)
+        
+        # 콘솔 로그로 오류 추적 원인 출력
+        if r.status_code == 401:
+            print(f"❌ [로아 API 오류] 401 Unauthorized: config.py의 API 키가 틀렸거나 만료되었습니다.")
             return None
+        elif r.status_code == 404:
+            print(f"❌ [로아 API 오류] 404 Not Found: '{character_name}' 캐릭터가 존재하지 않거나 점검 중입니다.")
+            return None
+        elif r.status_code != 200:
+            print(f"❌ [로아 API 오류] 상태 코드 {r.status_code}: API 서버 연결 실패")
+            return None
+
         return r.json()
     except Exception as e:
-        print("종합 API 오류:", e)
+        print("종합 API 오류 발생:", e)
         return None
 
 
 # =========================
-# 인증 모달
+# 인증 모달 및 뷰
 # =========================
 class VerifyModal(discord.ui.Modal, title="로스트아크 인증"):
     character_name = discord.ui.TextInput(
@@ -148,7 +164,7 @@ class VerifyView(discord.ui.View):
 
 
 # =========================
-# 🎲 [기능 고도화] 2인 다캐릭 통합 큐브 계산기 모달
+# 🎲 2인 다캐릭 통합 큐브 계산기
 # =========================
 class CubeCalculatorModal(discord.ui.Modal, title="🎲 2인 다캐릭 통합 큐브 정산"):
     my_tickets = discord.ui.TextInput(
@@ -253,7 +269,7 @@ class CubeView(discord.ui.View):
 
 
 # =========================
-# 🔍 [신규 추가] 로펙 스타일 캐릭터 스펙 검색 기능
+# 🔍 로펙 스타일 캐릭터 스펙 검색 명령어
 # =========================
 @bot.command(name="정보")
 async def character_spec_search(ctx, character_name: str = None):
@@ -265,7 +281,7 @@ async def character_spec_search(ctx, character_name: str = None):
     
     armory = get_full_armory(character_name)
     if not armory or not armory.get("Profile"):
-        await ctx.send("❌ 캐릭터 정보를 가져오지 못했습니다. 이름을 정확히 입력하셨는지 확인해 주세요.")
+        await ctx.send("❌ 캐릭터 정보를 가져오지 못했습니다. 캐릭터가 전투정보실에 없거나 봇 콘솔 로그의 API 상태를 확인하세요.")
         return
 
     profile = armory["Profile"]
@@ -274,17 +290,16 @@ async def character_spec_search(ctx, character_name: str = None):
     gems = armory.get("Gems") or {}
     cards = armory.get("Cards") or {}
 
-    # 임베드 기본 디자인 생성 (로펙 다크 테마 느낌)
     embed = discord.Embed(
         title=f"🛡️ {profile['CharacterName']} 스펙 진단 결과",
-        description=f"**{profile['CharacterClassName']}** | 아이템 레벨: `Lv.{profile['ItemMaxLevel']}`",
+        description=f"**{profile['CharacterClassName']}** | 아이템 레벨: `Lv.{profile.get('ItemMaxLevel', '정보 없음')}`",
         color=0x2B2D31
     )
     
     if profile.get("CharacterImage"):
         embed.set_thumbnail(url=profile["CharacterImage"])
 
-    # 1. 능력치 및 기본 정보 (좌측 상단 레이아웃)
+    # 1. 전투 특성
     stats_text = ""
     for stat in profile.get("Stats", []):
         if stat.get("Type") in ["치명", "특화", "신속"]:
@@ -293,7 +308,7 @@ async def character_spec_search(ctx, character_name: str = None):
         stats_text = "• 특성 정보 없음"
     embed.add_field(name="📊 주 스탯 및 전투 특성", value=stats_text, inline=True)
 
-    # 2. 아크 그리드 정보 (좌측 하단 레이아웃)
+    # 2. 아크 그리드 정보
     ark_text = ""
     if ark_passive.get("IsAvailable"):
         ark_text += "• 상태: **아크 패시브 가동 중**\n"
@@ -304,13 +319,12 @@ async def character_spec_search(ctx, character_name: str = None):
         ark_text = "• 상태: 비활성화 (시즌 3 기존 세팅)"
     embed.add_field(name="🧬 아크 그리드(패시브)", value=ark_text, inline=True)
 
-    # 3. 보석 장착 현황 요약 (상단 가로형 레이아웃)
+    # 3. 보석 장착 현황
     gem_list = gems.get("Gems") or []
     if gem_list:
         gem_summary = {}
         for g in gem_list:
             lvl = g.get("Level", 0)
-            # 이름에 피해가 들어가면 멸화/겁화, 재사용 대기시간이면 홍염/작열
             g_name = g.get("Name", "")
             g_type = "멸/겁화" if "피해" in g_name else "홍/작열"
             
@@ -322,7 +336,7 @@ async def character_spec_search(ctx, character_name: str = None):
         gem_text = "• 장착된 보석이 없습니다."
     embed.add_field(name="💎 보석 장착 현황", value=gem_text, inline=False)
 
-    # 4. 장비 및 악세사리 라인업 요약 (중앙 격자 레이아웃)
+    # 4. 장비 세팅 요약
     weapon_info = "• 무기 정보 없음"
     armor_count = 0
     acc_list = []
@@ -339,15 +353,14 @@ async def character_spec_search(ctx, character_name: str = None):
             acc_list.append(f"• {eq_type}: {eq_name}")
 
     equip_text = f"{weapon_info}\n• 방어구 장착: `{armor_count}/5` 부위"
-    embed.add_field(name="⚔️ 장비 / 아바타 요약", value=equip_text, inline=True)
+    embed.add_field(name="⚔️ 장비 요약", value=equip_text, inline=True)
     
     acc_text = "\n".join(acc_list) if acc_list else "• 악세사리 미착용"
     embed.add_field(name="💍 악세사리 세팅", value=acc_text, inline=True)
 
-    # 5. 카드 보유 현황 요약 (좌측 중앙 레이아웃)
+    # 5. 카드 보유 현황
     card_effects = cards.get("Effects") or []
     if card_effects:
-        # 가장 아래쪽(가장 높은 활성화 조건 세트 효과)을 타이틀로 채택
         active_set = card_effects[-1].get("Items", [dict()])[-1].get("Name", "세트 효과 없음")
         card_text = f"• 활성화 효과: **{active_set}**"
     else:
@@ -358,13 +371,21 @@ async def character_spec_search(ctx, character_name: str = None):
 
 
 # =========================
-# 봇 시작 및 명령어
+# 봇 시작 및 이벤트 연동
 # =========================
 @bot.event
 async def on_ready():
     bot.add_view(VerifyView())
     bot.add_view(CubeView())
     print(f"✅ 로그인 완료: {bot.user}")
+
+
+@bot.event
+async def on_message(message):
+    if message.author.bot:
+        return
+    # !정보 같은 텍스트 명령어를 강제 인식하도록 처리
+    await bot.process_commands(message)
 
 
 @bot.command()
