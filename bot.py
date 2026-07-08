@@ -4,21 +4,19 @@ import requests
 import os
 import re
 import urllib.parse
-from dotenv import load_dotenv  # .env 파일을 직접 읽기 위한 모듈
+from dotenv import load_dotenv
 
 # .env 파일 로드
 load_dotenv()
 
-# 환경 변수에서 토큰 및 API 키 직접 가져오기 (따옴표나 bearer 자동 제거 공정 포함)
+# 환경 변수 다이렉트 연동 (따옴표 및 bearer 자동 제거 공정 포함)
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 LOSTARK_API_KEY = os.getenv("LOSTARK_API_KEY")
 
 if LOSTARK_API_KEY:
     LOSTARK_API_KEY = str(LOSTARK_API_KEY).strip().replace('"', '').replace("'", "").replace("bearer ", "")
 
-# =========================
-# 봇 기본 설정 및 권한
-# =========================
+# 디스코드 인텐트 설정
 intents = discord.Intents.default()
 intents.members = True
 intents.message_content = True
@@ -29,8 +27,8 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 # =========================
 # 로스트아크 API 연동 함수군
 # =========================
-def get_character_info(character_name):
-    """단일 프로필 조회 (길드 인증용)"""
+def get_character_profile(character_name):
+    """전투정보실 스타일 출력을 위한 프로필 집중 파싱"""
     try:
         if not LOSTARK_API_KEY:
             print("❌ [로아 API 오류] .env 파일에서 LOSTARK_API_KEY를 찾을 수 없습니다.")
@@ -45,54 +43,20 @@ def get_character_info(character_name):
         url = f"https://developer-lostark.game.onstove.com/armories/characters/{encoded_name}/profiles"
 
         r = requests.get(url, headers=headers)
-        if r.status_code != 200:
+        if r.status_code == 401:
+            print("❌ [로아 API 오류] 401 Unauthorized: API 키가 올바르지 않거나 만료되었습니다.")
+            return None
+        elif r.status_code != 200:
+            print(f"❌ [로아 API 오류] 상태 코드: {r.status_code}")
             return None
 
         data = r.json()
         if not data or "CharacterName" not in data:
             return None
 
-        return {
-            "name": data["CharacterName"],
-            "class": data["CharacterClassName"],
-            "guild": data.get("GuildName") or ""
-        }
+        return data
     except Exception as e:
-        print("단일 프로필 API 오류:", e)
-        return None
-
-
-def get_full_armory(character_name):
-    """로펙형 데이터 조회를 위한 통합 세팅 조회"""
-    try:
-        if not LOSTARK_API_KEY:
-            print("❌ [로아 API 오류] .env 파일에서 LOSTARK_API_KEY를 찾을 수 없습니다.")
-            return None
-
-        encoded_name = urllib.parse.quote(character_name)
-        url = f"https://developer-lostark.game.onstove.com/armories/characters/{encoded_name}"
-        params = {"filters": "profiles|equipment|arkpassive|gems|cards"}
-        
-        current_headers = {
-            "accept": "application/json",
-            "authorization": f"bearer {LOSTARK_API_KEY}"
-        }
-        
-        r = requests.get(url, headers=current_headers, params=params)
-        
-        if r.status_code == 401:
-            print(f"❌ [로아 API 오류] 401 Unauthorized: .env의 API 키가 틀렸거나 만료되었습니다.")
-            return None
-        elif r.status_code == 404:
-            print(f"❌ [로아 API 오류] 404 Not Found: '{character_name}' 캐릭터가 없습니다.")
-            return None
-        elif r.status_code != 200:
-            print(f"❌ [로아 API 오류] 상태 코드 {r.status_code}: API 서버 연결 실패")
-            return None
-
-        return r.json()
-    except Exception as e:
-        print("종합 API 함수 내부 오류:", e)
+        print("프로필 API 오류:", e)
         return None
 
 
@@ -109,9 +73,9 @@ class VerifyModal(discord.ui.Modal, title="로스트아크 인증"):
     async def on_submit(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
 
-        info = get_character_info(self.character_name.value)
+        profile = get_character_profile(self.character_name.value)
 
-        if not info:
+        if not profile:
             await interaction.followup.send("❌ 캐릭터 정보를 찾을 수 없습니다.")
             return
 
@@ -122,19 +86,22 @@ class VerifyModal(discord.ui.Modal, title="로스트아크 인증"):
             await interaction.followup.send("❌ 멤버 정보를 불러올 수 없습니다.")
             return
 
-        try:
-            await member.edit(nick=f"{info['name']}/{info['class']}")
-        except Exception as e:
-            print("닉네임 변경 실패:", e)
+        char_name = profile["CharacterName"]
+        char_class = profile["CharacterClassName"]
+        char_guild = profile.get("GuildName") or ""
 
-        roles_to_add = [info["class"]]
+        try:
+            await member.edit(nick=f"{char_name}/{char_class}")
+        except Exception as e:
+            print("닉네임 변경 실패 (봇 권한 위계 확인 필요):", e)
+
+        roles_to_add = [char_class]
         embed_title = "✅ 인증 완료"
         embed_color = 0x57F287
-        embed_description = f"**{info['name']}**님, 인증이 완료되었습니다."
+        embed_description = f"**{char_name}**님, 인증이 완료되었습니다."
 
-        # .env 혹은 환경변수 기반으로 유연하게 처리 (없으면 기본값)
         config_guild = os.getenv("GUILD_NAME", "")
-        is_guild_member = info["guild"].strip() == config_guild.strip() if config_guild else False
+        is_guild_member = char_guild.strip() == config_guild.strip() if config_guild else False
 
         if is_guild_member:
             member_role = os.getenv("MEMBER_ROLE", "")
@@ -142,10 +109,10 @@ class VerifyModal(discord.ui.Modal, title="로스트아크 인증"):
         else:
             guest_role_name = os.getenv("GUEST_ROLE", "외부인")
             roles_to_add.append(guest_role_name)
-            current_guild = info['guild'] if info['guild'] else '없음'
+            current_guild = char_guild if char_guild else '없음'
             embed_title = "ℹ 외부인 인증 완료"
             embed_color = 0x3498DB
-            embed_description = f"**{info['name']}**님은 외부인(지인)으로 인증되었습니다.\n(조회된 길드: {current_guild})"
+            embed_description = f"**{char_name}**님은 외부인(지인)으로 인증되었습니다.\n(조회된 길드: {current_guild})"
 
         for role_name in roles_to_add:
             role = discord.utils.get(guild.roles, name=role_name)
@@ -165,8 +132,8 @@ class VerifyModal(discord.ui.Modal, title="로스트아크 인증"):
                     print("WAIT_ROLE 제거 실패:", e)
 
         embed = discord.Embed(title=embed_title, description=embed_description, color=embed_color)
-        embed.add_field(name="캐릭터명", value=info["name"], inline=True)
-        embed.add_field(name="직업", value=info["class"], inline=True)
+        embed.add_field(name="캐릭터명", value=char_name, inline=True)
+        embed.add_field(name="직업", value=char_class, inline=True)
         await interaction.followup.send(embed=embed)
 
 
@@ -273,111 +240,67 @@ class CubeView(discord.ui.View):
 
 
 # =========================
-# 🔍 로펙 스타일 캐릭터 스펙 검색 기능
+# 🔍 템렙/전투력 집중 출력 스펙 검색 기능
 # =========================
 @bot.command(name="정보")
 async def character_spec_search(ctx, character_name: str = None):
     if not character_name:
-        await ctx.send("❌ 사용법: `!정보 [캐릭터이름]`")
+        await ctx.send("❌ 사용법: `!정보 [캐릭터이름]` (예: `!정보 구워링`)")
         return
 
-    status_msg = await ctx.send(f"🔍 **{character_name}** 님의 로펙형 스펙 세팅을 파싱하고 있습니다...")
+    status_msg = await ctx.send(f"🔍 **{character_name}** 님의 전투정보실 데이터를 불러오는 중...")
     
+    profile = get_character_profile(character_name)
+    if not profile:
+        await status_msg.edit(content="❌ 캐릭터 정보를 가져오지 못했습니다. .env의 API 키 세팅이나 캐릭터명을 확인하세요.")
+        return
+
     try:
-        armory = get_full_armory(character_name)
-        if not armory or not armory.get("Profile"):
-            await status_msg.edit(content="❌ 캐릭터 정보를 가져오지 못했습니다. .env의 API 키 값 자체를 아예 새로 발급받아 교체해 보시는 것을 권장합니다.")
-            return
+        char_name = profile.get("CharacterName", character_name)
+        char_class = profile.get("CharacterClassName", "알 수 없음")
+        title = profile.get("Title", "없음")
+        guild_name = profile.get("GuildName") or "없음"
+        guild_rank = profile.get("GuildMemberGrade") or ""
+        
+        item_lvl = profile.get("ItemMaxLevel", "0.00")
+        exp_lvl = profile.get("CharacterLevel", "0")
+        exp_exp = profile.get("ExpeditionLevel", "0")
+        
+        # 전투력 파싱 및 포맷팅 (, 추가)
+        total_power = "정보 없음"
+        for stat in profile.get("Stats", []):
+            if stat.get("Type") == "전투력":
+                total_power = f"{int(float(stat['Value'])):,}" if stat.get("Value") else "정보 없음"
+                break
 
-        profile = armory["Profile"]
-        equipment = armory.get("Equipment") or []
-        ark_passive = armory.get("ArkPassive") or {}
-        gems = armory.get("Gems") or {}
-        cards = armory.get("Cards") or {}
-
+        # 전투정보실 레이아웃 기반 깔끔한 임베드 생성
         embed = discord.Embed(
-            title=f"🛡️ {profile.get('CharacterName', character_name)} 스펙 진단 결과",
-            description=f"**{profile.get('CharacterClassName', '알 수 없음')}** | 아이템 레벨: `Lv.{profile.get('ItemMaxLevel', '정보 없음')}`",
+            title=f"🛡️ {char_name} ({char_class} / {title})",
             color=0x2B2D31
         )
         
         if profile.get("CharacterImage"):
             embed.set_thumbnail(url=profile["CharacterImage"])
 
-        # 1. 전투 특성
-        stats_text = ""
-        for stat in profile.get("Stats", []):
-            if stat.get("Type") in ["치명", "특화", "신속"]:
-                stats_text += f"• {stat['Type']}: `{stat['Value']}`\n"
-        if not stats_text:
-            stats_text = "• 특성 정보 없음"
-        embed.add_field(name="📊 주 스탯 및 전투 특성", value=stats_text, inline=True)
-
-        # 2. 아크 그리드
-        ark_text = ""
-        if ark_passive.get("IsAvailable"):
-            ark_text += "• 상태: **아크 패시브 가동 중**\n"
-            if ark_passive.get("Points"):
-                for pt in ark_passive["Points"]:
-                    ark_text += f"- {pt.get('Name')}: `{pt.get('Value')} pt`\n"
-        else:
-            ark_text = "• 상태: 비활성화 (기존 세팅)"
-        embed.add_field(name="🧬 아크 그리드(패시브)", value=ark_text, inline=True)
-
-        # 3. 보석
-        gem_list = gems.get("Gems") or []
-        if gem_list:
-            gem_summary = {}
-            for g in gem_list:
-                lvl = g.get("Level", 0)
-                g_name = g.get("Name", "")
-                g_type = "멸/겁화" if "피해" in g_name else "홍/작열"
-                key = f"T{g.get('Tier', 3)} {lvl}레벨 {g_type}"
-                gem_summary[key] = gem_summary.get(key, 0) + 1
-            gem_text = "\n".join([f"• {k} × {v}개" for k, v in sorted(gem_summary.items(), reverse=True)])
-        else:
-            gem_text = "• 장착된 보석이 없습니다."
-        embed.add_field(name="💎 보석 장착 현황", value=gem_text, inline=False)
-
-        # 4. 장비
-        weapon_info = "• 무기 정보 없음"
-        armor_count = 0
-        acc_list = []
-        for eq in equipment:
-            eq_type = eq.get("Type")
-            eq_name = eq.get("Name")
-            if eq_type == "무기":
-                weapon_info = f"• {eq_name}"
-            elif eq_type in ["투구", "견갑", "상의", "하의", "장갑"]:
-                armor_count += 1
-            elif eq_type in ["목걸이", "귀걸이", "반지", "브레이서"]:
-                acc_list.append(f"• {eq_type}: {eq_name}")
-
-        embed.add_field(name="⚔️ 장비 요약", value=f"{weapon_info}\n• 방어구: `{armor_count}/5` 부위", inline=True)
-        embed.add_field(name="💍 악세사리 세팅", value="\n".join(acc_list) if acc_list else "• 미착용", inline=True)
-
-        # 5. 카드
-        card_effects = cards.get("Effects") or []
-        if card_effects:
-            try:
-                active_set = card_effects[-1].get("Items", [dict()])[-1].get("Name", "세트 효과 없음")
-                card_text = f"• 활성화 효과: **{active_set}**"
-            except:
-                card_text = "• 카드 효과 파싱 실패"
-        else:
-            card_text = "• 활성화된 카드 세트 효과가 없습니다."
-        embed.add_field(name="🃏 카드 세트 효과", value=card_text, inline=False)
+        # 정보 일렬 배치
+        embed.add_field(name="🏰 소속 길드", value=f"`{guild_name}` {guild_rank}", inline=True)
+        embed.add_field(name="✨ 원정대 레벨", value=f"Lv.{exp_exp}", inline=True)
+        embed.add_field(name="⚔️ 전투 레벨", value=f"Lv.{exp_lvl}", inline=True)
+        
+        embed.add_field(name="💎 아이템 레벨", value=f"**{item_lvl}**", inline=True)
+        embed.add_field(name="🔥 전투력", value=f"**{total_power}**", inline=True)
+        embed.add_field(name="ㅤ", value="ㅤ", inline=True)  # 레이아웃 정렬 공백
 
         await status_msg.delete()
         await ctx.send(embed=embed)
 
     except Exception as e:
-        print("명령어 내부 오류:", e)
+        print("명령어 내부 처리 오류:", e)
         await status_msg.edit(content="❌ 봇 내부 연동 에러가 발생했습니다.")
 
 
 # =========================
-# 봇 실행 이벤트
+# 봇 가동 및 명령어 연동 이벤트
 # =========================
 @bot.event
 async def on_ready():
@@ -395,14 +318,23 @@ async def on_message(message):
 
 @bot.command()
 async def 인증패널(ctx):
-    embed = discord.Embed(title="로스트아크 길드 인증", description="아래 버튼을 눌러 인증하세요", color=0x2B2D31)
+    embed = discord.Embed(
+        title="로스트아크 길드 인증",
+        description="아래 버튼을 눌러 인증하세요\n(지인분들도 동일하게 인증하시면 됩니다)",
+        color=0x2B2D31
+    )
     await ctx.send(embed=embed, view=VerifyView())
 
 
 @bot.command()
 async def 큐브계산기(ctx):
-    embed = discord.Embed(title="🎲 큐브 2인 다캐릭 통합 매칭", description="티켓 현황을 입력하세요.", color=0x2B2D31)
+    embed = discord.Embed(
+        title="🎲 큐브 2인 다캐릭 통합 매칭",
+        description="나와 상대방의 모든 캐릭터 티켓 현황을 붙여넣으세요.",
+        color=0x2B2D31
+    )
     await ctx.send(embed=embed, view=CubeView())
+
 
 if DISCORD_TOKEN:
     bot.run(DISCORD_TOKEN)
