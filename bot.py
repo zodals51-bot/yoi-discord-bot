@@ -21,6 +21,49 @@ intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 
+# =========================
+# 📊 [신규] 로스트아크 시너지 데이터베이스
+# =========================
+SYNERGY_DATA = {
+    "디스트로이어": "🛡️ 방깎 / 🔨 무력화",
+    "버서커": "💥 피증",
+    "워로드": "🛡️ 방깎 / 📐 백헤드 피증 / 🔰 받피감 / 📉 공깎 (고기: 방깎 제외 / 전태: 방깎 포함)",
+    "홀리나이트": "⚡ 치피증",
+    "슬레이어": "💥 피증",
+    "발키리": "⚡ 치피증",
+    "기공사": "⚔️ 공증 / 🔰 받피감 / 📉 공깎",
+    "배틀마스터": "🎯 치적 / 🏃 공이속",
+    "인파이터": "💥 피증 / 🔨 무력화",
+    "창술사": "⚡ 치피증",
+    "브레이커": "💥 피증",
+    "스트라이커": "🎯 치적 / 💨 공속",
+    "데빌헌터": "🎯 치적",
+    "블래스터": "🛡️ 방깎 / 🔨 무력화",
+    "스카우터": "⚔️ 공증",
+    "호크아이": "💥 피증 / 📉 공깎 / 🏃 두동은 이속 추가",
+    "건슬링어": "🎯 치적",
+    "바드": "🛡️ 방깎 / 💨 공속 / 📉 공깎 / 🧪 마회 / 🔰 뎀감",
+    "서머너": "🛡️ 방깎 / 🧪 마회",
+    "소서리스": "💥 피증",
+    "아르카나": "🎯 치적",
+    "데모닉": "💥 피증",
+    "리퍼": "🛡️ 방깎",
+    "블레이드": "📐 백헤드 피증 / 🏃 공이속 / 📉 공깎",
+    "소울이터": "💥 피증",
+    "기상술사": "🎯 치적 / 📉 공깎 / 🏃 질풍은 공이속 추가",
+    "도화가": "🛡️ 방깎 / 🔰 받피감 / 💨 공속 / 🧪 마회",
+    "환수사": "🛡️ 방깎",
+    "가디언나이트": "💥 피증"
+}
+
+# 레이드 컨닝페이퍼 데이터베이스
+RAID_CHEAT_SHEETS = {
+    "카멘": "https://example.com/kamen_image.png",       
+    "에키드나": "https://example.com/echidna_image.png", 
+    "베히모스": "https://example.com/behemoth_image.png", 
+}
+
+
 def get_character_profile(character_name):
     try:
         if not LOSTARK_API_KEY: return None
@@ -83,112 +126,131 @@ async def character_spec_search(ctx, character_name: str = None):
 
 
 # =========================
-# 🎲 [개편] 캐릭별 3배/1배 최적 동선 계산기
+# ✨ [신규] 시너지 확인 명령어
+# =========================
+@bot.command(name="시너지")
+async def show_synergy(ctx, job_name: str = None):
+    # 1. 특정 직업을 검색했을 때 (예: !시너지 디트, !시너지 바드)
+    if job_name:
+        # 입력된 글자가 포함된 직업 매칭 (ex: '기상' 치면 '기상술사' 매칭)
+        matched_job = None
+        for key in SYNERGY_DATA.keys():
+            if job_name in key:
+                matched_job = key
+                break
+
+        if matched_job:
+            embed = discord.Embed(
+                title=f"✨ {matched_job} 시너지 정보",
+                description=f"**{SYNERGY_DATA[matched_job]}**",
+                color=0x5865F2
+            )
+            await ctx.send(embed=embed)
+        else:
+            await ctx.send(f"❌ `{job_name}` 직업을 찾을 수 없습니다. 정확한 이름을 입력해 주세요!")
+        return
+
+    # 2. 그냥 !시너지 만 쳤을 때 전체 리스트 노출
+    embed = discord.Embed(title="⚔️ 로스트아크 전 직업 시너지 표", color=0x2B2D31)
+    
+    # 디스코드 가독성을 위해 6개씩 끊어서 필드에 이쁘게 담아줍니다.
+    jobs = list(SYNERGY_DATA.keys())
+    chunks = [jobs[i:i + 6] for i in range(0, len(jobs), 6)]
+    
+    for i, chunk in enumerate(chunks):
+        chunk_text = ""
+        for job in chunk:
+            chunk_text += f"• **{job}**: {SYNERGY_DATA[job]}\n"
+        embed.add_field(name=f"목록 ({i+1})", value=chunk_text, inline=False)
+        
+    embed.set_footer(text="💡 특정 직업만 보려면 [!시너지 직업명]을 입력하세요. (예: !시너지 워로드)")
+    await ctx.send(embed=embed)
+
+
+# =========================
+# 📸 로아 레이드 컨닝페이퍼 명령어
+# =========================
+@bot.command(name="컨닝", aliases=["컷", "기믹"])
+async def show_cheat_sheet(ctx, raid_name: str = None):
+    if not raid_name:
+        available_raids = ", ".join([f"`{k}`" for k in RAID_CHEAT_SHEETS.keys()])
+        await ctx.send(f"❌ 사용법: `!컨닝 [레이드이름]`\nℹ️ 현재 등록된 레이드: {available_raids}")
+        return
+
+    if raid_name in RAID_CHEAT_SHEETS:
+        image_url = RAID_CHEAT_SHEETS[raid_name]
+        embed = discord.Embed(title=f"🗺️ {raid_name} 레이드 컨닝페이퍼 (공략)", color=0x2B2D31)
+        embed.set_image(url=image_url)
+        await ctx.send(embed=embed)
+    else:
+        await ctx.send(f"❌ `{raid_name}` 레이드는 아직 컨닝페이퍼가 등록되지 않았습니다.")
+
+
+# =========================
+# 🎲 캐릭터별 큐브 매칭 정산
 # =========================
 class CubeCalculatorModal(discord.ui.Modal, title="🎲 캐릭터별 큐브 매칭 정산"):
-    my_tickets = discord.ui.TextInput(
-        label="내 캐릭별 티켓 현황 (줄바꿈 가능)",
-        placeholder="예시:\n환수사 4해금 5\n기상 4해금 2",
-        style=discord.TextStyle.long, required=True
-    )
-    partner_tickets = discord.ui.TextInput(
-        label="상대방 캐릭별 티켓 현황 (줄바꿈 가능)",
-        placeholder="예시:\n죽창 4해금 4\n슬레이어 4해금 3",
-        style=discord.TextStyle.long, required=True
-    )
+    my_tickets = discord.ui.TextInput(label="내 캐릭별 티켓 현황", style=discord.TextStyle.long, required=True)
+    partner_tickets = discord.ui.TextInput(label="상대방 캐릭별 티켓 현황", style=discord.TextStyle.long, required=True)
 
     def parse_tickets_by_char(self, text):
-        # 캐릭터별로 해금 단계와 장수를 파싱하는 로직
-        # 딕셔너리 구조: { 해금단계: { 캐릭터명: 장수 } }
         data = {4: {}, 3: {}, 2: {}, 1: {}}
         lines = text.strip().split('\n')
         for line in lines:
             if not line.strip(): continue
-            # 정규식으로 숫자(해금단계), 뒤에 오는 숫자(티켓수) 추출
             match = re.search(r'([1-4])[^\d]*(\d+)', line)
             if match:
                 stage = int(match.group(1))
                 count = int(match.group(2))
-                # 숫자들을 제외한 앞부분 문자열을 캐릭터 이름으로 인식 (공백 제거)
                 char_name = line.split(match.group(0))[0].strip()
-                if not char_name:
-                    char_name = f"캐릭_{stage}"
+                if not char_name: char_name = f"캐릭_{stage}"
                 data[stage][char_name] = data[stage].get(char_name, 0) + count
         return data
 
     async def on_submit(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=False)
-
         me = self.parse_tickets_by_char(self.my_tickets.value)
         partner = self.parse_tickets_by_char(self.partner_tickets.value)
-
         embed = discord.Embed(title="📊 캐릭터별 최적 큐브 동선 설계", color=0x00FFFF)
-        embed.description = "두 분의 캐릭터별 보유량을 매칭한 가장 깔끔한 소모 순서입니다.\n"
         
         has_data = False
-
         for stage in [4, 3, 2, 1]:
             my_chars = {k: v for k, v in me[stage].items() if v > 0}
             partner_chars = {k: v for k, v in partner[stage].items() if v > 0}
-
-            if not my_chars and not partner_chars:
-                continue
-
+            if not my_chars and not partner_chars: continue
             has_data = True
-            stage_text = ""
-
-            # 1단계: 3배 소모 최적 매칭 (내가 3장 이상, 상대가 3장 이상 있을 때 캐릭 매칭)
-            stage_text += "**🔹 [3배 소모 조합]**\n"
+            stage_text = "**🔹 [3배 소모 조합]**\n"
             triple_found = False
-            
             for m_char in list(my_chars.keys()):
                 for p_char in list(partner_chars.keys()):
                     if my_chars[m_char] >= 3 and partner_chars[p_char] >= 3:
-                        # 두 캐릭이 동시에 돌 수 있는 최대 3배 판수 계산
-                        m_triples = my_chars[m_char] // 3
-                        p_triples = partner_chars[p_char] // 3
-                        pan = min(m_triples, p_triples)
-                        
+                        pan = min(my_chars[m_char] // 3, partner_chars[p_char] // 3)
                         if pan > 0:
-                            stage_text += f"➔ 나의 **[{m_char}]** ⚔️ 상대 **[{p_char}]** ➜ **3배로 {pan}판** 같이 가기\n"
+                            stage_text += f"➔ 나의 **[{m_char}]** ⚔️ 상대 **[{p_char}]** ➜ **3배로 {pan}판**\n"
                             my_chars[m_char] -= pan * 3
                             partner_chars[p_char] -= pan * 3
                             triple_found = True
-            
-            if not triple_found:
-                stage_text += "➔ 캐릭터 간 3장씩 딱 맞아떨어지는 3배 조합이 없습니다.\n"
+            if not triple_found: stage_text += "➔ 3배 조합이 없습니다.\n"
 
-            # 2단계: 1배 소모 및 잔여 티켓 믹스 매칭
             stage_text += "\n**🔸 [1배 소모 및 잔여 믹스]**\n"
             single_found = False
-            
-            # 남은 티켓이 있는 캐릭터들 필터링
             my_remains = {k: v for k, v in my_chars.items() if v > 0}
             partner_remains = {k: v for k, v in partner_chars.items() if v > 0}
-
             for m_char in list(my_remains.keys()):
                 for p_char in list(partner_remains.keys()):
                     if my_remains[m_char] > 0 and partner_remains[p_char] > 0:
                         pan = min(my_remains[m_char], partner_remains[p_char])
-                        stage_text += f"➔ 나의 **[{m_char}]** ({my_remains[m_char]}장 남음) ⚔️ 상대 **[{p_char}]** ({partner_remains[p_char]}장 남음) ➜ **1배로 {pan}판** 같이 녹이기\n"
+                        stage_text += f"➔ 나의 **[{m_char}]** ({my_remains[m_char]}장) ⚔️ 상대 **[{p_char}]** ({partner_remains[p_char]}장) ➜ **1배로 {pan}판**\n"
                         my_remains[m_char] -= pan
                         partner_remains[p_char] -= pan
                         single_found = True
-
-            if not single_found and triple_found:
-                # 3배로 다 털어내고 남은 자투리가 없을 때
-                stage_text += "➔ 3배 조합으로 남김없이 깔끔하게 정산되었습니다!\n"
-            elif not single_found and not triple_found:
-                stage_text += "➔ 함께 뺄 수 있는 캐릭터 조합이 존재하지 않습니다.\n"
-
-            embed.add_field(name=f"▶️ {stage}해금 에브니 큐브 파트너 가이드", value=stage_text + "─", inline=False)
+            if not single_found and triple_found: stage_text += "➔ 깔끔하게 정산되었습니다!\n"
+            embed.add_field(name=f"▶️ {stage}해금 큐브 가이드", value=stage_text + "─", inline=False)
 
         if not has_data:
-            await interaction.followup.send("❌ 입력 양식에서 티켓 데이터를 파싱하지 못했습니다. (예: `닉네임 4해금 3장` 형식)")
+            await interaction.followup.send("❌ 티켓 데이터를 파싱하지 못했습니다.")
             return
-
         await interaction.followup.send(embed=embed)
-
 
 class CubeView(discord.ui.View):
     def __init__(self): super().__init__(timeout=None)
