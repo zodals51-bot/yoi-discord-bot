@@ -1,9 +1,11 @@
+Python
 import discord
 from discord.ext import commands
 import requests
 import os
 import re
 import urllib.parse
+from datetime import datetime
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -22,7 +24,7 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 
 
 # =========================
-# 🏛️ 낙원 지옥 증명용 스킬코드 데이터베이스
+# 🏛️ 데이터베이스 (낙원 및 시너지)
 # =========================
 NAKWON_SKILL_CODES = {
     "버서커": {"code": "D4CA6251267CE8902F1FEA21762F9F28C30ECF11AACE115BF4D520F554689BBF66BD3DF1DE277B6B31F20462AD6E97B2C89695136F98A789B8A62CD53DB5935A", "tip": "💡 시너지 스킬 레드 더스트(Q) 묻히고 잡으시면 됩니다."},
@@ -53,10 +55,10 @@ NAKWON_SKILL_CODES = {
     "건슬링어": {"code": "F9B33936D0B56C705357A040D9ACE264417FBD7828D07BA0BCF0F7AEBFA53A67BFF815BBE35A438FD878B02E193D467F81EC41030E5E599910EB624DCA4EFF64", "tip": "💡 시너지 스킬 나선의 추적자(Q) or 민첩한 사격(W) 묻히고 잡으시면 됩니다."},
     "도화가": {"code": "34B0C635863E851C5546448B8AC5A0A5574EAC5B7ADAFC3FEF901A9BF7CB9CAD8CFA23A01469ECD307E4A00EFF498D49924E8B3A7AB28598D00A806DDD065199", "tip": "💡 버프 스킬 묵법 : 난치기(Q) + 묵법 : 해그리기(W) 묻히고 잡으시면 됩니다."},
     "기상술사": {"code": "EAFC3136EB0CDBF34EAEA796F9C0F7359B18A7EC6E2CC1E3FE2985DDBA48966160B4CFB73BDF758308B6BDDFAB72F9ACBA81C4F01CB71F17BC297DE8F7F258EA", "tip": "💡 시너지 스킬 펼치기(Q) or 돌개바람(W) 묻히고 잡으시면 됩니다."},
-    "환수사": {"code": "81FDC09B88E7B5F7186C13679BE0BEC74142863BBA1D597A23099B2AF9D4B618C3EC3445AA82206BAE5E138D70F2421CA4403F2A81D56A4F7C315ADE3B068DFE", "tip": "💡 시너지 스킬 얍!(Q) 묻히고 잡으시면 됩니다."}
+    "환수사": {"code": "81FDC09B88E7B5F7186C13679BE0BEC74142863BBA1D597A23099B2AF9D4B618C3EC3445AA82206BAE5E138D70F2421CA4403F2A81D56A4F7C315ADE3B068DFE", "tip": "💡 시너지 스킬 얍!(Q) 묻히고 잡으시면 됩니다."},
+    "가디언나이트": {"code": "4D3B390C38D1972199B884B747235A83DBBEF2128D95F3B43E15C11146D75FA499D58B2D33EDA3172A7FDC59A5D19AB89A1AA23B8F3F7C659623BB6FA1F262BB", "tip": "💡 시너지 스킬 쓰러스트(Q) 묻히고 잡으시면 됩니다."}
 }
 
-# 📊 로스트아크 시너지 상세 데이터베이스 (로아가드 기반 카테고리화)
 SYNERGY_DETAILS = {
     "디스트로이어": {"effects": ["방깎", "무력화"], "desc": "🛡️ 방깎 / 🔨 무력화"},
     "버서커": {"effects": ["피증"], "desc": "💥 피증"},
@@ -91,7 +93,41 @@ SYNERGY_DETAILS = {
 
 
 # =========================
-# 🔍 정보 검색 명령어
+# ⚖️ 경매 분배금 계산기 (!경매 [금액])
+# =========================
+@bot.command(name="경매")
+async def calculate_auction(ctx, price: int = None):
+    if not price or price <= 0:
+        await ctx.send("❌ 사용법: `!경매 [경매장 시세]` (예: `!경매 10000`)")
+        return
+
+    # 수수료 제외 순수 가치 (95%)
+    net_value = int(price * 0.95)
+    
+    # 인원별 선점가(손익분기점) 및 추천 입찰가 계산
+    calc_data = {
+        "4인 파티 (군단장)": {"break_even": int(net_value * 3 / 4), "recommend": int(net_value * 0.95 * 3 / 4)},
+        "8인 파티 (어비스 레이드)": {"break_even": int(net_value * 7 / 8), "recommend": int(net_value * 0.95 * 7 / 8)},
+        "16인 파티 (어비스 던전)": {"break_even": int(net_value * 15 / 16), "recommend": int(net_value * 0.95 * 15 / 16)}
+    }
+
+    embed = discord.Embed(title=f"⚖️ 경매 입찰금 정산기 (시세: {price:,} G)", color=0xF1C40F)
+    embed.description = f"💡 **수수료 제외 가치:** {net_value:,} 골드\n*아래 추천가까지만 눌러야 이득입니다.*"
+
+    for team, data in calc_data.items():
+        b_even = data["break_even"]
+        recom = data["recommend"]
+        embed.add_field(
+            name=f"👥 {team}",
+            value=f"• **추천 입찰가:** `{recom:,} G` (이득 가능)\n• **손익 분기점:** `{b_even:,} G` (여기 넘기면 손해)",
+            inline=False
+        )
+    
+    await ctx.send(embed=embed)
+
+
+# =========================
+# 기본 기능들 (정보, 낙원, 시너지, 조합, 큐브, 인증)
 # =========================
 def get_character_profile(character_name):
     try:
@@ -146,35 +182,24 @@ async def character_spec_search(ctx, character_name: str = None):
     except Exception as e:
         await status_msg.edit(content="❌ 데이터 파싱 중 오류가 발생했습니다.")
 
-
-# =========================
-# 🎯 낙원 스킬코드 명령어
-# =========================
 @bot.command(name="낙원")
 async def show_nakwon_code(ctx, job_name: str = None):
     if not job_name:
         available_jobs = ", ".join([f"`{k}`" for k in NAKWON_SKILL_CODES.keys()])
         await ctx.send(f"❌ 사용법: `!낙원 [직업명]`\nℹ️ 등록된 직업: {available_jobs}")
         return
-
     matched_job = None
     for key in NAKWON_SKILL_CODES.keys():
         if job_name in key: matched_job = key; break
-
     if not matched_job:
         await ctx.send(f"❌ `{job_name}` 직업의 낙원 증명용 스킬코드를 찾을 수 없습니다.")
         return
-
     job_data = NAKWON_SKILL_CODES[matched_job]
     embed = discord.Embed(title=f"🌊 낙원 증명용 {matched_job} 아크 패시브", color=0x00A3FF)
     embed.add_field(name="📋 복사용 스킬코드", value=f"```{job_data['code']}```", inline=False)
     embed.add_field(name="💡 운용 팁 / 공략", value=f"{job_data['tip']}", inline=False)
     await ctx.send(embed=embed)
 
-
-# =========================
-# ✨ 시너지 확인 명령어 (전체 출력)
-# =========================
 @bot.command(name="시너지")
 async def show_synergy(ctx):
     embed = discord.Embed(title="⚔️ 로스트아크 전 직업 시너지 표", color=0x2B2D31)
@@ -187,111 +212,45 @@ async def show_synergy(ctx):
         embed.add_field(name=f"시너지 목록 ({i+1})", value=chunk_text, inline=False)
     await ctx.send(embed=embed)
 
-
-# =========================
-# 📊 로아가드 레이드 헬퍼 (조합 분석기)
-# =========================
 @bot.command(name="레이드조합")
 async def analyze_raid_party(ctx, *jobs: str):
     if len(jobs) < 1 or len(jobs) > 4:
-        await ctx.send("❌ 사용법: `!레이드조합 [직업1] [직업2] [직업3] [직업4]` (최대 4개 직업)")
+        await ctx.send("❌ 사용법: `!레이드조합 [직업1] [직업2] [직업3] [직업4]`")
         return
-
-    matched_jobs = []
-    invalid_jobs = []
-
-    # 직업 이름 매칭 유효성 검사
+    matched_jobs, invalid_jobs = [], []
     for job in jobs:
         found = False
         for key in SYNERGY_DETAILS.keys():
-            if job in key:
-                matched_jobs.append(key)
-                found = True
-                break
-        if not found:
-            invalid_jobs.append(job)
-
+            if job in key: matched_jobs.append(key); found = True; break
+        if not found: invalid_jobs.append(job)
     if invalid_jobs:
         await ctx.send(f"❌ 알 수 없는 직업이 포함되어 있습니다: {', '.join([f'`{j}`' for j in invalid_jobs])}")
         return
-
-    # 시너지 중첩 분석 체커
     effect_counts = {}
-    party_synergies = []
-    has_supp = False
-    has_backhead = False
-
+    has_supp = has_backhead = False
     for job in matched_jobs:
         effects = SYNERGY_DETAILS[job]["effects"]
-        if "케어" in effects:
-            has_supp = True
-        if job in ["워로드", "블레이드"]:
-            has_backhead = True
-
+        if "케어" in effects: has_supp = True
+        if job in ["워로드", "블레이드"]: has_backhead = True
         for eff in effects:
-            if eff != "케어":  # 일반 서포터 케어는 중첩 패널티 제외
-                effect_counts[eff] = effect_counts.get(eff, 0) + 1
-
-    # 임베드 구성
+            if eff != "케어": effect_counts[eff] = effect_counts.get(eff, 0) + 1
     embed = discord.Embed(title="🛡️ 로아가드 레이드 헬퍼 파티 조합 분석", color=0x3498DB)
-    
-    party_list_text = " / ".join([f"**{j}**" for j in matched_jobs])
-    embed.add_field(name="👥 현재 구성 파티원", value=party_list_text, inline=False)
-
-    # 1. 중첩 시너지 알림 (경고)
-    overlap_text = ""
-    for eff, count in effect_counts.items():
-        if count > 1:
-            overlap_text += f"⚠️ **[{eff}]** 시너지가 **{count}개** 중첩되었습니다. (효율 감소)\n"
-    
-    if overlap_text:
-        embed.add_field(name="🚨 시너지 중첩 경고", value=overlap_text, inline=False)
-    else:
-        embed.add_field(name="🚨 시너지 중첩 경고", value="✅ 중첩된 시너지가 없이 깔끔합니다!", inline=False)
-
-    # 2. 보유한 유효 시너지 목록
-    has_effects_text = ""
-    for eff in effect_counts.keys():
-        has_effects_text += f"• {eff}\n"
-    if not has_effects_text: has_effects_text = "없음"
-    embed.add_field(name="✨ 활성화된 시너지 효과", value=has_effects_text, inline=True)
-
-    # 3. 누락된 주요 시너지 목록
-    missing_effects = []
-    major_effects = ["치적", "방깎", "피증"]
-    for major in major_effects:
-        if major not in effect_counts:
-            missing_effects.append(major)
-            
-    missing_text = "\n".join([f"• {m}" for m in missing_effects]) if missing_effects else "✅ 필수 시너지 완비!"
-    embed.add_field(name="❌ 누락된 필수 시너지", value=missing_text, inline=True)
-
-    # 4. 조합 종합 시너지 점수 한줄평 평가
-    score = 100
-    # 중첩당 감점
-    for count in effect_counts.values():
-        if count > 1: score -= (count - 1) * 20
-    # 필수 시너지 누락당 감점
-    score -= len(missing_effects) * 15
-    if not has_supp and len(matched_jobs) == 4: score -= 20  # 노서폿 파티 감점
-    
-    score = max(10, score) # 최소 10점
-
-    if score >= 85: evaluation = "🌟 **최상 (시너지 도둑 조합)** - 딜 고점이 매우 높은 완벽한 조합입니다."
-    elif score >= 65: evaluation = "✅ **양호 (무난한 조합)** - 레이드 클리어에 전혀 문제 없는 조합입니다."
-    else: evaluation = "🔺 **조정 필요 (시너지 불협화음)** - 시너지가 많이 겹치거나 필수 시너지가 빠졌습니다."
-
+    embed.add_field(name="👥 현재 구성 파티원", value=" / ".join([f"**{j}**" for j in matched_jobs]), inline=False)
+    overlap_text = "".join([f"⚠️ **[{eff}]** 시너지가 **{count}개** 중첩되었습니다.\n" for eff, count in effect_counts.items() if count > 1])
+    embed.add_field(name="🚨 시너지 중첩 경고", value=overlap_text if overlap_text else "✅ 중첩된 시너지가 없이 깔끔합니다!", inline=False)
+    embed.add_field(name="✨ 활성화된 시너지 효과", value="\n".join([f"• {eff}" for eff in effect_counts.keys()]) if effect_counts else "없음", inline=True)
+    missing_effects = [m for m in ["치적", "방깎", "피증"] if m not in effect_counts]
+    embed.add_field(name="❌ 누락된 필수 시너지", value="\n".join([f"• {m}" for m in missing_effects]) if missing_effects else "✅ 필수 시너지 완비!", inline=True)
+    score = max(10, 100 - sum([(c - 1) * 20 for c in effect_counts.values() if c > 1]) - len(missing_effects) * 15 - (20 if not has_supp and len(matched_jobs) == 4 else 0))
+    evaluation = "🌟 **최상 (시너지 도둑 조합)**" if score >= 85 else "✅ **양호 (무난한 조합)**" if score >= 65 else "🔺 **조정 필요 (시너지 불협화음)**"
     embed.add_field(name="📊 조합 시너지 점수", value=f"**{score}점**\n{evaluation}", inline=False)
-
-    # 5. 백헤드 보너스 시너지 특수 기믹 분석
     if has_backhead:
-        embed.add_field(name="📐 특수 조합 코멘트", value="💡 파티에 **사멸(백/헤드) 시너지**가 포함되어 있으므로, 사멸 딜러들을 우선 배치하면 시너지 효율이 극대화됩니다.", inline=False)
-
+        embed.add_field(name="📐 특수 조합 코멘트", value="💡 파티에 **사멸(백/헤드) 시너지**가 포함되어 있으므로, 사멸 딜러 배치 시 시너지 효율이 극대화됩니다.", inline=False)
     await ctx.send(embed=embed)
 
 
 # =========================
-# 🎲 캐릭터별 큐브 매칭 정산
+# 🎲 큐브 매칭 정산 시스템
 # =========================
 class CubeCalculatorModal(discord.ui.Modal, title="🎲 캐릭터별 큐브 매칭 정산"):
     my_tickets = discord.ui.TextInput(label="내 캐릭별 티켓 현황", style=discord.TextStyle.long, required=True)
@@ -316,7 +275,6 @@ class CubeCalculatorModal(discord.ui.Modal, title="🎲 캐릭터별 큐브 매�
         me = self.parse_tickets_by_char(self.my_tickets.value)
         partner = self.parse_tickets_by_char(self.partner_tickets.value)
         embed = discord.Embed(title="📊 캐릭터별 최적 큐브 동선 설계", color=0x00FFFF)
-        
         has_data = False
         for stage in [4, 3, 2, 1]:
             my_chars = {k: v for k, v in me[stage].items() if v > 0}
@@ -335,7 +293,6 @@ class CubeCalculatorModal(discord.ui.Modal, title="🎲 캐릭터별 큐브 매�
                             partner_chars[p_char] -= pan * 3
                             triple_found = True
             if not triple_found: stage_text += "➔ 3배 조합이 없습니다.\n"
-
             stage_text += "\n**🔸 [1배 소모 및 잔여 믹스]**\n"
             single_found = False
             my_remains = {k: v for k, v in my_chars.items() if v > 0}
@@ -350,7 +307,6 @@ class CubeCalculatorModal(discord.ui.Modal, title="🎲 캐릭터별 큐브 매�
                         single_found = True
             if not single_found and triple_found: stage_text += "➔ 깔끔하게 정산되었습니다!\n"
             embed.add_field(name=f"▶️ {stage}해금 큐브 가이드", value=stage_text + "─", inline=False)
-
         if not has_data:
             await interaction.followup.send("❌ 티켓 데이터를 파싱하지 못했습니다.")
             return
@@ -377,14 +333,11 @@ class VerifyModal(discord.ui.Modal, title="로스트아크 인증"):
         guild = interaction.guild
         member = guild.get_member(interaction.user.id)
         if member is None: return
-
         char_name = profile["CharacterName"]
         char_class = profile["CharacterClassName"]
         char_guild = profile.get("GuildName") or ""
-
         try: await member.edit(nick=f"{char_name}/{char_class}")
         except: pass
-
         roles_to_add = [char_class]
         config_guild = os.getenv("GUILD_NAME", "")
         if char_guild.strip() == config_guild.strip() if config_guild else False:
@@ -392,11 +345,9 @@ class VerifyModal(discord.ui.Modal, title="로스트아크 인증"):
             if member_role: roles_to_add.append(member_role)
         else:
             roles_to_add.append(os.getenv("GUEST_ROLE", "외부인"))
-
         for r_name in roles_to_add:
             role = discord.utils.get(guild.roles, name=r_name)
             if role: await member.add_roles(role)
-
         embed = discord.Embed(title="✅ 인증 완료", description=f"**{char_name}**님 환영합니다.", color=0x57F287)
         await interaction.followup.send(embed=embed)
 
