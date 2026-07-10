@@ -1,10 +1,10 @@
-Python
 import discord
 from discord.ext import commands
 import requests
 import os
 import re
 import urllib.parse
+import asyncio  # 알람 타이머 기능을 위해 추가되었습니다.
 from datetime import datetime
 from dotenv import load_dotenv
 
@@ -30,14 +30,14 @@ NAKWON_SKILL_CODES = {
     "버서커": {"code": "D4CA6251267CE8902F1FEA21762F9F28C30ECF11AACE115BF4D520F554689BBF66BD3DF1DE277B6B31F20462AD6E97B2C89695136F98A789B8A62CD53DB5935A", "tip": "💡 시너지 스킬 레드 더스트(Q) 묻히고 잡으시면 됩니다."},
     "디스트로이어": {"code": "FA7FF6A50BD7F1966A6C56DD1C0245D16E1086EE1C22621CD397C7965B856018453FA8BE8D64D58AC35B1C351FB73A36833C567AEB0A5A3651582AA6F3D449E0", "tip": "💡 시너지 스킬 헤비 크러쉬(Q) 묻히고 잡으시면 됩니다."},
     "워로드": {"code": "5A5C28DF295A1D573D3B8E2179FD743EE8E8F66BAE670445F56378641554D9FE51382781DF7B3FCE6930BB86012375C365032AD1010C250741ACF039991DA80E", "tip": "💡 시너지 스킬 방패 밀치기(Q) 묻히고 잡으시면 됩니다."},
-    "홀리나이트": {"code": "F80DB3C9E5A454F8031256EDA9C82AA3B6579506548D60FFCF449E5D175B9458743172D59393D114515E4097AB6266B7F549AA29C3A6AE09847F60F6CE1C7D3A", "tip": "💡 파랑↔노랑 스킬 번갈아가면서 사용하며 잡으시면 됩니다."},
+    "홀리나이트": {"code": "F80DB3C9E5A454F8031256EDA9C82AA3B6579506548D60FFCF449E5D175B9458743172D59393D114515E4097AB5266B7F549AA29C3A6AE09847F60F6CE1C7D3A", "tip": "💡 파랑↔노랑 스킬 번갈아가면서 사용하며 잡으시면 됩니다."},
     "슬레이어": {"code": "75565923693CFC32CCECDCE70C4E6CA8EB1B495A3E81C1CFCA985AC3CE122FD1414853EC9769FFBA33FFA7E1A3ED7A53E81C119CFF2EB0711B2F39BE187D737C", "tip": "💡 시너지 스킬 와일드 스톰프(Q) 묻히고 잡으시면 됩니다."},
     "발키리": {"code": "6772A26DA93E97CC9684CCA066C0CB0529752D70EC45E9F5B40D9B37BDE3DACF6A122F639C8FE00F2A47C595DCCD43671366A8E9BC5AC61536950BA3E4FED8DC", "tip": "💡 시너지 스킬 간파 베기(Q) 묻히고 숭고한 맹세(A) 자버프 켜고 잡으시면 됩니다."},
     "가디언나이트": {"code": "4D3B390C38D1972199B884B747235A83DBBEF2128D95F3B43E15C11146D75FA499D58B2D33EDA3172A7FDC59A5D19AB89A1AA23B8F3F7C659623BB6FA1F262BB", "tip": "💡 시너지 스킬 쓰러스트(Q) 묻히고 잡으시면 됩니다."},
     "배틀마스터": {"code": "FAD22C0BFEF159E70241C51FB405DFCB9F358425161ACE6EC82F7B003266D5AB33F1C9EAC284A0156577D52E652CB35FECC5010637297084826FEB42011A7930", "tip": "💡 시너지 스킬 붕천퇴(Q) 묻히고 용(A)바(S) + 내연(R) 사용 후 잡으시면 됩니다."},
     "스트라이커": {"code": "C0262C91F0FB156019E75FD5A71CF2D92C490DEC3A0CF50842FB54BF465600CCBE833CC0BB5A2D57127F975FB6446272198E34A8C4E256EBB0F0811829E04570", "tip": "💡 시너지 스킬 붕천퇴(Q) 묻히고 번개의 축복(W) 사용 후 잡으시면 됩니다."},
     "인파이터": {"code": "4742A18BD92E9FD27C53BE2F61D2EE537C28A0AADB2DD1A6E980D211535CE4733F105DF15974B97525F6B5A54600B58FDB8CAF3B00D3DF25FC4843BEB6CE795F", "tip": "⚠️ [어려움]\n💡 시너지 스킬 심판(Q) 묻히고 잡으시면 됩니다."},
-    "기공사": {"code": "522403204440E002007CC4E0BF032367E6B6CC6FA4D8098EA1FA4091EF4292D0D0CA7053B55E65A1DE2E8F6CF34E5993DF0498BDC2F2E1EEC1E55F22FBC59175", "tip": "⚠️ [더 어려움]\n💡 금강선공 3단계 + 자버프 스킬 파쇄장(Q)+내공 방출(W) 사용 후 때리다가 금강선공 켜고 자버프 사용 후 각성기로 잡으시면 됩니다."},
+    "기공사": {"code": "522403204440E002007CC4E0BF032367E6B6CC6FA4D8098EA1FA4091EF4292D0D0CA7053B55E65A1DE2E8F6CF34E5993DF0498BDC2F2E1EEC1E55F22FBC59175", "tip": "💡 금강선공 3단계 + 자버프 스킬 파쇄장(Q)+내공 방출(W) 사용 후 때리다가 금강선공 켜고 자버프 사용 후 각성기로 잡으시면 됩니다."},
     "창술사": {"code": "E1AA2478E3E86E11155E0106A43F57A087C5766E9F31FDCB0C49FED79E02959B25DE9A1A3E9891102074EE9F3D00F88F0D652D0C6908ED480273AB97A96B9335", "tip": "💡 시너지 스킬 나선창(Q) or 일섬각(Q) 묻히고 잡으시면 됩니다."},
     "브레이커": {"code": "2A0333435522900E444F382A036EA296861DA771123F95457D2AC6DEE005C1F044E7C06A9A92646EDF73A4BA26D2A66F6DBBCB82F4A052617632238A38DBE5B9", "tip": "⚠️ [어려움]\n💡 시너지 스킬 비뢰격(Q) 묻히고 잡으시면 됩니다."},
     "아르카나": {"code": "96514407229E74835E049F6222660A1052778D76EBD301BB4380963E6796C7D5A8DAD3664EB16541E87FC3EAC7F26FFD0F1D77A92E729DA3A9DDE35C9FA2D61C", "tip": "💡 자버프 스킬 운명의 부름(Q) 묻히고 스트림 오브 엣지(A) 치적 묻히고 잡으시면 됩니다."},
@@ -55,8 +55,7 @@ NAKWON_SKILL_CODES = {
     "건슬링어": {"code": "F9B33936D0B56C705357A040D9ACE264417FBD7828D07BA0BCF0F7AEBFA53A67BFF815BBE35A438FD878B02E193D467F81EC41030E5E599910EB624DCA4EFF64", "tip": "💡 시너지 스킬 나선의 추적자(Q) or 민첩한 사격(W) 묻히고 잡으시면 됩니다."},
     "도화가": {"code": "34B0C635863E851C5546448B8AC5A0A5574EAC5B7ADAFC3FEF901A9BF7CB9CAD8CFA23A01469ECD307E4A00EFF498D49924E8B3A7AB28598D00A806DDD065199", "tip": "💡 버프 스킬 묵법 : 난치기(Q) + 묵법 : 해그리기(W) 묻히고 잡으시면 됩니다."},
     "기상술사": {"code": "EAFC3136EB0CDBF34EAEA796F9C0F7359B18A7EC6E2CC1E3FE2985DDBA48966160B4CFB73BDF758308B6BDDFAB72F9ACBA81C4F01CB71F17BC297DE8F7F258EA", "tip": "💡 시너지 스킬 펼치기(Q) or 돌개바람(W) 묻히고 잡으시면 됩니다."},
-    "환수사": {"code": "81FDC09B88E7B5F7186C13679BE0BEC74142863BBA1D597A23099B2AF9D4B618C3EC3445AA82206BAE5E138D70F2421CA4403F2A81D56A4F7C315ADE3B068DFE", "tip": "💡 시너지 스킬 얍!(Q) 묻히고 잡으시면 됩니다."},
-    "가디언나이트": {"code": "4D3B390C38D1972199B884B747235A83DBBEF2128D95F3B43E15C11146D75FA499D58B2D33EDA3172A7FDC59A5D19AB89A1AA23B8F3F7C659623BB6FA1F262BB", "tip": "💡 시너지 스킬 쓰러스트(Q) 묻히고 잡으시면 됩니다."}
+    "환수사": {"code": "81FDC09B88E7B5F7186C13679BE0BEC74142863BBA1D597A23099B2AF9D4B618C3EC3445AA82206BAE5E138D70F2421CA4403F2A81D56A4F7C315ADE3B068DFE", "tip": "💡 시너지 스킬 얍!(Q) 묻히고 잡으시면 됩니다."}
 }
 
 SYNERGY_DETAILS = {
@@ -75,7 +74,7 @@ SYNERGY_DETAILS = {
     "데빌헌터": {"effects": ["치적"], "desc": "🎯 치적"},
     "블래스터": {"effects": ["방깎", "무력화"], "desc": "🛡️ 방깎 / 🔨 무력화"},
     "스카우터": {"effects": ["공증"], "desc": "⚔️ 공증"},
-    "호크아이": {"effects": ["피증"], "desc": "💥 피증 / 🏃 두동 이동속도"},
+    "호크아이": {"effects": ["피증"], "desc": "💥 피증"},
     "건슬링어": {"effects": ["치적"], "desc": "🎯 치적"},
     "바드": {"effects": ["방깎", "공증", "케어"], "desc": "🛡️ 낙인방깎 / ⚔️ 서포터 공증"},
     "서머너": {"effects": ["방깎"], "desc": "🛡️ 방깎 / 🧪 마회"},
@@ -87,8 +86,7 @@ SYNERGY_DETAILS = {
     "소울이터": {"effects": ["피증"], "desc": "💥 피증"},
     "기상술사": {"effects": ["치적"], "desc": "🎯 치적 / 🏃 질풍 공이속"},
     "도화가": {"effects": ["방깎", "공증", "케어"], "desc": "🛡️ 낙인방깎 / ⚔️ 서포터 공증"},
-    "환수사": {"effects": ["방깎"], "desc": "🛡️ 방깎"},
-    "가디언나이트": {"effects": ["피증"], "desc": "💥 피증"}
+    "환수사": {"effects": ["방깎"], "desc": "🛡️ 방깎"}
 }
 
 
@@ -101,10 +99,8 @@ async def calculate_auction(ctx, price: int = None):
         await ctx.send("❌ 사용법: `!경매 [경매장 시세]` (예: `!경매 10000`)")
         return
 
-    # 수수료 제외 순수 가치 (95%)
     net_value = int(price * 0.95)
     
-    # 인원별 선점가(손익분기점) 및 추천 입찰가 계산
     calc_data = {
         "4인 파티 (군단장)": {"break_even": int(net_value * 3 / 4), "recommend": int(net_value * 0.95 * 3 / 4)},
         "8인 파티 (어비스 레이드)": {"break_even": int(net_value * 7 / 8), "recommend": int(net_value * 0.95 * 7 / 8)},
@@ -124,6 +120,41 @@ async def calculate_auction(ctx, price: int = None):
         )
     
     await ctx.send(embed=embed)
+
+
+# =========================
+# ⏰ 알람 타이머 (장난 및 복귀 멘션용)
+# =========================
+@bot.command(name="알람")
+async def set_timer(ctx, time_str: str = None, *, memo: str = "시간 완료!"):
+    if not time_str:
+        await ctx.send("❌ 사용법: `!알람 [시간+단위] [멘션/메모]` (예: `!알람 10분`, `!알람 3분 @홍길동 얼른 복귀해라`)")
+        return
+
+    seconds = 0
+    if "분" in time_str:
+        minutes = int(time_str.replace("분", "").strip())
+        seconds = minutes * 60
+    elif "초" in time_str:
+        seconds = int(time_str.replace("초", "").strip())
+    else:
+        try:
+            seconds = int(time_str) * 60
+            time_str = f"{time_str}분"
+        except ValueError:
+            await ctx.send("❌ 시간을 올바르게 입력해주세요. (예: 10분, 30초)")
+            return
+
+    if seconds <= 0:
+        await ctx.send("❌ 0보다 큰 시간을 입력해주세요.")
+        return
+
+    await ctx.send(f"⏰ {ctx.author.mention}님, **{time_str}** 알람이 예약되었습니다. (내용: {memo})")
+    
+    await asyncio.sleep(seconds)
+    
+    # 지정한 시간 뒤에 메모 내용을 그대로 읊으며 멘션 (메모 안에 @태그가 있으면 같이 태그됨)
+    await ctx.send(f"🚨 **[{time_str} 완료]** ➜ {memo}")
 
 
 # =========================
