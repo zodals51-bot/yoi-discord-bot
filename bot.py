@@ -37,7 +37,6 @@ def call_lostark_api(endpoint, character_name):
         return r.json()
     except: return None
 
-
 # =========================
 # 🏛️ 데이터베이스 (낙원 및 시너지)
 # =========================
@@ -121,7 +120,7 @@ BASE_REWARD_VALUES = {
 
 
 # =========================
-# 🛡️ 상세 캐릭터 정보실 UI (!정보)
+# 🛡️ 상세 캐릭터 정보실 UI (!정보) -> 오류 완벽 수정 완료
 # =========================
 @bot.command(name="정보")
 async def character_spec_search(ctx, character_name: str = None):
@@ -151,10 +150,10 @@ async def character_spec_search(ctx, character_name: str = None):
         exp_exp = str(profile.get("ExpeditionLevel", "0"))
         exp_lvl = str(profile.get("CharacterLevel", "0"))
         
-        # 2. 전투력 및 공격력 (None 체크 강화)
+        # 2. 전투력 및 공격력 (방어적 데이터 처리)
         attack_power = "0"
         total_power = "알 수 없음"
-        stats_data = profile.get("Stats") or []  # API가 빈 값을 줄 경우 빈 리스트로 처리
+        stats_data = profile.get("Stats") or []
         for stat in stats_data:
             s_type = str(stat.get("Type", ""))
             s_value = str(stat.get("Value", "0"))
@@ -166,22 +165,24 @@ async def character_spec_search(ctx, character_name: str = None):
                 clean_val = re.sub(r'[^\d]', '', s_value)
                 if clean_val.isdigit(): total_power = f"{int(clean_val):,}"
 
-        # 3. 아크 패시브 (None 체크 강화)
+        # 3. 아크 패시브 (방어적 데이터 처리)
         grid_nodes = []
         points_info = []
         is_ark_passive = False
         
-        if arkpassive_data:
+        if arkpassive_data and isinstance(arkpassive_data, dict):
             is_ark_passive = arkpassive_data.get("IsEffect", False)
             
-        if is_ark_passive:
-            # get("Points")가 None일 수도 있으므로 or [] 처리
-            for p in (arkpassive_data.get("Points") or []):
-                points_info.append(f"{p.get('Name')} {p.get('Value')}P")
-            for eff in (arkpassive_data.get("Effects") or []):
-                e_name = eff.get("Name", "")
-                if e_name: grid_nodes.append(f"• {e_name}")
-            ark_passive_status = " | ".join(points_info)
+            if is_ark_passive:
+                for p in (arkpassive_data.get("Points") or []):
+                    points_info.append(f"{p.get('Name')} {p.get('Value')}P")
+                for eff in (arkpassive_data.get("Effects") or []):
+                    e_name = eff.get("Name", "")
+                    if e_name: grid_nodes.append(f"• {e_name}")
+                ark_passive_status = " | ".join(points_info) if points_info else "정보 없음"
+            else:
+                grid_nodes = ["• 활성화된 아크 그리드 노드 정보가 없습니다."]
+                ark_passive_status = "아크 패시브 비활성화 상태"
         else:
             grid_nodes = ["• 활성화된 아크 그리드 노드 정보가 없습니다."]
             ark_passive_status = "아크 패시브 비활성화 상태"
@@ -189,7 +190,7 @@ async def character_spec_search(ctx, character_name: str = None):
         if not grid_nodes and is_ark_passive:
             grid_nodes = ["• 활성화된 아크 그리드 노드가 없습니다 (미개방)."]
 
-        # 4. 장비 세팅 (None 체크 강화)
+        # 4. 장비 세팅 (방어적 데이터 처리)
         weapon_name = "장비 정보 없음"
         armor_set_name = "장비 정보 없음"
         if equipment and isinstance(equipment, list):
@@ -201,11 +202,11 @@ async def character_spec_search(ctx, character_name: str = None):
                 elif i_type in ["투구", "상의", "하의", "장갑", "어깨"] and armor_set_name == "장비 정보 없음":
                     armor_set_name = re.sub(r'투구|상의|하의|장갑|어깨', '', clean_name).strip()
 
-        # 5. 각인 필터링 (None 체크 강화)
+        # 5. 각인 필터링 (방어적 데이터 처리)
         eng_text = ""
         if is_ark_passive:
             eng_text = "• 🌀 **아크 패시브 가동 중**\n(기존 각인 비활성화 됨)"
-        elif engravings_data:
+        elif engravings_data and isinstance(engravings_data, dict):
             eng_effects = engravings_data.get("Effects") or []
             for eng in eng_effects:
                 e_name = eng.get("Name", "")
@@ -236,7 +237,6 @@ async def character_spec_search(ctx, character_name: str = None):
         
     except Exception as e:
         await status_msg.edit(content=f"❌ 데이터 처리 중 치명적인 오류가 발생했습니다.\n디버그 코드: `{e}`")
-
 
 # =========================
 # ⚖️ 경매 분배금 계산기 (!경매 [금액])
