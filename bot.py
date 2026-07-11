@@ -43,22 +43,7 @@ BASE_REWARD_VALUES = {
 }
 
 # =========================
-# ⚙️ 로스트아크 API 연동 헬퍼
-# =========================
-def call_lostark_api(endpoint, character_name):
-    try:
-        if not LOSTARK_API_KEY: return None
-        headers = {"accept": "application/json", "authorization": f"bearer {LOSTARK_API_KEY}"}
-        encoded_name = urllib.parse.quote(character_name)
-        url = f"https://developer-lostark.game.onstove.com/armories/characters/{encoded_name}/{endpoint}"
-        r = requests.get(url, headers=headers)
-        if r.status_code != 200: return None
-        return r.json()
-    except: return None
-
-
-# =========================
-# 🛡️ [시즌 4 아크패시브 전용] 캐릭터 정보실 UI (!정보)
+# 🛡️ [버그 픽스] 캐릭터 정보실 UI (!정보)
 # =========================
 @bot.command(name="정보")
 async def character_spec_search(ctx, character_name: str = None):
@@ -66,12 +51,12 @@ async def character_spec_search(ctx, character_name: str = None):
         await ctx.send("❌ 사용법: `!정보 [캐릭터이름]`")
         return
         
-    status_msg = await ctx.send(f"🔍 **{character_name}** 님의 아크 패시브 및 시즌 4 데이터 연동 중...")
+    status_msg = await ctx.send(f"🔍 **{character_name}** 님의 아크 패시브 및 세팅 데이터를 추적 중...")
     
     profile = call_lostark_api("profiles", character_name)
     engravings_data = call_lostark_api("engravings", character_name)
     equipment = call_lostark_api("equipment", character_name)
-    arkpassive_data = call_lostark_api("arkpassive", character_name) # 🌟 아크패시브 전용 추가
+    arkpassive_data = call_lostark_api("arkpassive", character_name) # 아크패시브 전용 데이터
     
     if not profile:
         await status_msg.delete()
@@ -84,56 +69,57 @@ async def character_spec_search(ctx, character_name: str = None):
     server_name = profile.get("ServerName", "알 수 없음")
     title = profile.get("Title") or "칭호 없음"
     guild_name = profile.get("GuildName") or "없음"
-    
     item_lvl = str(profile.get("ItemAvgLevel", "0"))
     exp_exp = str(profile.get("ExpeditionLevel", "0"))
     exp_lvl = str(profile.get("CharacterLevel", "0"))
     
-    # 2. 전투력 / 공격력 파싱 보정 (모든 스탯 완전 스캔)
-    total_power = "0"
+    # 2. 핵심 스탯 파싱 (공식 API에 없는 '전투력' 대신 '전투 특성' 반영)
     attack_power = "0"
+    main_stats = []
     stats_list = profile.get("Stats") or []
     
     for stat in stats_list:
         s_type = str(stat.get("Type", ""))
         s_value = str(stat.get("Value", "0"))
         
-        if "공격력" in s_type and "아군" not in s_type:
+        if s_type == "공격력":
             clean_val = re.sub(r'[^\d]', '', s_value)
             if clean_val.isdigit(): attack_power = f"{int(clean_val):,}"
-        elif "전투력" in s_type:
-            clean_val = re.sub(r'[^\d]', '', s_value)
-            if clean_val.isdigit(): total_power = f"{int(clean_val):,}"
+        elif s_type in ["치명", "특화", "신속"]:
+            if int(s_value) > 200: # 장신구 등으로 올린 유효 특성만 필터링
+                main_stats.append(f"{s_type} {s_value}")
 
-    # 3. 🌟 아크 패시브 전용 엔드포인트 연동 (아크 그리드 완벽 반영)
+    stat_display = " / ".join(main_stats) if main_stats else "특성 정보 없음"
+
+    # 3. 🌟 아크 패시브 완벽 파싱 (IsEffect 및 Effects 배열 매칭)
     grid_nodes = []
     points_info = []
+    is_ark_passive = False
     
-    if arkpassive_data and arkpassive_data.get("IsAvailable") is True:
-        # 진화, 깨달음, 도약 포인트 요약 추출
-        points = arkpassive_data.get("Points", [])
-        for p in points:
-            p_name = p.get("Name", "")
-            p_val = p.get("Value", 0)
-            points_info.append(f"{p_name} {p_val}P")
+    if arkpassive_data:
+        # IsEffect가 True일 때만 아크 패시브가 켜진 상태
+        is_ark_passive = arkpassive_data.get("IsEffect", False)
+        
+    if is_ark_passive:
+        # 분배된 포인트 현황 추출
+        for p in arkpassive_data.get("Points", []):
+            points_info.append(f"{p.get('Name')} {p.get('Value')}P")
             
-        # 활성화된 아크 그리드 노드명 선별
-        conditions = arkpassive_data.get("Conditions", [])
-        for cond in conditions:
-            c_name = cond.get("Name", "")
-            # 트리거된 노드 텍스트 확보
-            if c_name:
-                grid_nodes.append(f"• {c_name}")
-    
-    # 만약 아크패시브 데이터가 안 잡혔을 때의 예외 처리
-    if not grid_nodes:
-        grid_nodes = ["• 활성화된 아크 그리드 노드가 없습니다 (미개방)."]
-    if points_info:
+        # 🌟 실제 활성화된 아크 그리드 '노드명' 추출 (여기가 핵심!)
+        for eff in arkpassive_data.get("Effects", []):
+            e_name = eff.get("Name", "")
+            if e_name:
+                grid_nodes.append(f"• {e_name}")
+                
         ark_passive_status = " | ".join(points_info)
     else:
-        ark_passive_status = "아크 패시브 비활성화 상태"
+        grid_nodes = ["• 아크 패시브가 비활성화되어 있습니다."]
+        ark_passive_status = "비활성화 상태 (기존 각인 사용 중)"
 
-    # 4. 무기 및 방어구 세트 이름 정밀 추출
+    if not grid_nodes and is_ark_passive:
+        grid_nodes = ["• 포인트는 있으나 활성화된 노드가 없습니다."]
+
+    # 4. 무기 및 방어구 세트명 정제
     weapon_name = "장비 정보 없음"
     armor_set_name = "장비 정보 없음"
     
@@ -148,28 +134,23 @@ async def character_spec_search(ctx, character_name: str = None):
             elif i_type in ["투구", "상의", "하의", "장갑", "어깨"] and armor_set_name == "장비 정보 없음":
                 armor_set_name = re.sub(r'투구|상의|하의|장갑|어깨', '', clean_name).strip()
 
-    # 5. 🌟 각인서 정보 실시간 파싱 보정
-    # 아크 패시브 활성화 시 engravings 혹은 arkpassive 내 각인 정보 데이터 매칭
+    # 5. 🌟 각인서 더미 데이터 필터링 보정
     eng_text = ""
-    if engravings_data and "Effects" in engravings_data:
-        eng_list = engravings_data["Effects"] or []
-        for eng in eng_list:
-            e_name = eng.get("Name", "")
-            if e_name:
-                eng_text += f"• 🟥 **{e_name}**\n"
-                
-    # 만약 기존 각인이 비어있다면 아크패시브 내에 커스텀 각인이 있는지 재확인
-    if not eng_text and arkpassive_data:
-        ark_engravings = arkpassive_data.get("Effects", []) # 아크패시브 내부 각인 효과 대치
-        for ae in ark_engravings:
-            ae_name = ae.get("Name", "")
-            if ae_name:
-                eng_text += f"• 🟥 **{ae_name}**\n"
+    if is_ark_passive:
+        eng_text = "• 🌀 **아크 패시브 가동 중**\n(기존 각인 비활성화 됨)"
+    else:
+        if engravings_data and "Effects" in engravings_data:
+            eng_list = engravings_data["Effects"] or []
+            for eng in eng_list:
+                e_name = eng.get("Name", "")
+                # API 더미 데이터(진화, 깨달음, 도약) 도배 방지 필터링
+                if e_name and not any(x in e_name for x in ["진화", "깨달음", "도약"]):
+                    eng_text += f"• 🟥 **{e_name}**\n"
+                    
+        if not eng_text:
+            eng_text = "• ⬜ 활성화된 기존 각인 없음"
 
-    if not eng_text:
-        eng_text = "• ⬜ 활성화된 각인 시스템 없음"
-
-    # UI 조립 및 출력
+    # UI 렌더링
     embed = discord.Embed(
         title=f"🎭 {server_name}  |  {char_name} ㅤ", 
         description=f"**{char_class}** 세팅 정보 실시간 동기화\n칭호: `{title}` ㅤ|ㅤ 길드: `{guild_name}`",
@@ -178,23 +159,28 @@ async def character_spec_search(ctx, character_name: str = None):
     if profile.get("CharacterImage"): 
         embed.set_thumbnail(url=profile["CharacterImage"])
 
-    # 상단 정보 블록
     embed.add_field(name="📋 기본 정보", value=f"• 아이템 Lv: `{item_lvl}`\n• 원정대 Lv: `{exp_exp}`\n• 전투 Lv: `Lv.{exp_lvl}`", inline=True)
-    embed.add_field(name="🔥 핵심 스탯", value=f"• 전투력: **{total_power}**\n• 공격력: `{attack_power}`", inline=True)
+    embed.add_field(name="🔥 전투 특성 및 공격력", value=f"• 특성: **{stat_display}**\n• 공격력: `{attack_power}`", inline=True)
     embed.add_field(name="✨ 장비 세팅", value=f"• 무기: `{weapon_name}`\n• 방어구 세트: `{armor_set_name}`", inline=True)
 
-    # 💠 [진짜 동적 데이터] 아크 그리드 분배 현황
+    # 진짜 유저가 셋팅한 아크 그리드 노드 출력
     embed.add_field(name=f"💠 {char_name} 아크 그리드 현황", value=f"```md\n" + "\n".join(grid_nodes) + "```", inline=False)
 
-    # ⚡ 아크 패시브 포인트 요약 정보
-    embed.add_field(name="⚡ 아크 패시브 가동 스펙", value=f"```md\n[현재 분배 스펙]\n➜ {ark_passive_status}```", inline=False)
-
-    # 하단 각인서
+    embed.add_field(name="⚡ 아크 패시브 스펙", value=f"```md\n[현재 분배 현황]\n➜ {ark_passive_status}```", inline=False)
     embed.add_field(name="🔸 활성화 각인 시스템", value=eng_text, inline=True)
 
     await status_msg.delete()
     await ctx.send(embed=embed)
 
+
+@bot.event
+async def on_ready():
+    print(f"✅ 시즌 4 아크패시브 노드/더미 각인 필터링 업데이트 완료: {bot.user}")
+
+@bot.event
+async def on_message(message):
+    if message.author.bot: return
+    await bot.process_commands(message)
 
 # =========================
 # ⚔️ 실시간 레이드 모집 UI 매칭
