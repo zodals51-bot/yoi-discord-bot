@@ -89,6 +89,21 @@ SYNERGY_DETAILS = {
     "환수사": {"effects": ["방깎"], "desc": "🛡️ 방깎"}
 }
 
+# lo4.app 지옥 보상 아이템 기본 베이스 단가 및 명칭 사전
+BASE_REWARD_VALUES = {
+    "어빌리티스톤": 35000, "어빌": 35000, "돌": 35000,
+    "특수재련": 28000, "특재": 28000,
+    "재련보조": 22000, "보조": 22000, "숨결": 22000,
+    "젬선택": 20000, "보석": 20000, "젬": 20000,
+    "아비도스융화재료": 18000, "아비도스": 18000, "융화재료": 18000,
+    "파괴석수호석결정": 15000, "파괴석": 15000, "수호석": 15000, "결정": 15000,
+    "팔찌": 14000,
+    "운명의돌혼돈의돌": 12000, "운돌": 12000, "혼돌": 12000,
+    "귀속골드": 10000, "골드": 10000,
+    "천상도전권": 5000, "도전권": 5000,
+    "돌파석": 2000
+}
+
 
 # =========================
 # ⚖️ 경매 분배금 계산기 (!경매 [금액])
@@ -167,6 +182,101 @@ async def show_hell_reward_efficiency(ctx):
     )
     
     embed.set_footer(text="출처: Lopec(로펙) 리워드 효율 산정 툴 및 내부 통계 시뮬레이션")
+    await ctx.send(embed=embed)
+
+
+# =========================
+# 🌋 [신규] 레벨/층수 맞춤형 지옥 보상 판별기 (!지옥추천)
+# 사용법: !지옥추천 [레벨] [층수구간] [보상1] [보상2] ...
+# 예시: !지옥추천 1750 91~100 어빌 특재 골드
+# =========================
+@bot.command(name="지옥추천")
+async def recommend_hell_reward(ctx, level: str, floor_range: str, *rewards: str):
+    if not level or not floor_range or len(rewards) < 2:
+        await ctx.send("❌ **사용법:** `!지옥추천 [레벨] [층수구간] [보상1] [보상2] ...`\nℹ️ 예시: `!지옥추천 1750 0~10 어빌 특재 골드`")
+        return
+
+    # 1. 레벨 구간 배율 설정
+    level_multiplier = 1.0
+    if level == "1640": level_multiplier = 0.5
+    elif level == "1700": level_multiplier = 1.0
+    elif level == "1730": level_multiplier = 2.5
+    elif level == "1750": level_multiplier = 4.0
+
+    # 2. 유저가 입력한 층수 구간(ex: 0~10, 11~19)에서 대표 숫자를 뽑아 배율 계산
+    try:
+        clean_floor = floor_range.replace("층", "")
+        if "~" in clean_floor:
+            parts = clean_floor.split("~")
+            target_floor = (int(parts[0]) + int(parts[1])) / 2  # 구간의 중간값 사용
+        elif "-" in clean_floor:
+            parts = clean_floor.split("-")
+            target_floor = (int(parts[0]) + int(parts[1])) / 2
+        else:
+            target_floor = int(clean_floor)
+    except ValueError:
+        target_floor = 5  # 변환 실패 시 기본 0~10층 구간(5층)으로 안전 처리
+    
+    # 층수별 풍요 보상 증폭 배율 (고층일수록 재료 가치 상승)
+    floor_multiplier = 1.0 + (target_floor / 20.0)
+    
+    analyzed_rewards = []
+    unknown_rewards = []
+
+    for r_input in rewards:
+        clean_input = r_input.replace(" ", "")
+        
+        if clean_input in BASE_REWARD_VALUES:
+            base_val = BASE_REWARD_VALUES[clean_input]
+            
+            # 재료형 아이템은 고층일 때의 수량 뻥튀기 영향 대폭 반영
+            if clean_input in ["아비도스", "융화재료", "파괴석", "수호석", "결정", "돌파석"]:
+                final_value = base_val * level_multiplier * floor_multiplier
+            else:
+                # 고정형 아이템은 층수 영향 소폭 반영
+                final_value = base_val * level_multiplier * (1.0 + (target_floor / 50.0))
+
+            analyzed_rewards.append({
+                "original": r_input,
+                "calc_val": final_value
+            })
+        else:
+            unknown_rewards.append(r_input)
+
+    if not analyzed_rewards:
+        await ctx.send("❌ 인식된 보상이 없습니다. 단어 뒤에 오타가 없는지 확인해 주세요!")
+        return
+
+    # 최종 골드 가치 기준 내림차순 정렬 (가장 비싼 게 1위로)
+    analyzed_rewards.sort(key=lambda x: x["calc_val"], reverse=True)
+
+    embed = discord.Embed(
+        title=f"🌋 [지옥 보상] {level}레벨 / {floor_range} 구간 실시간 판별",
+        color=0x2ECC71,
+        description=f"📊 현재 단계에서 `lo4.app` 시뮬레이션 효율이 가장 높은 순서입니다."
+    )
+    
+    # 최상위 1등상 강조
+    best_reward = analyzed_rewards[0]
+    embed.add_field(
+        name=f"🥇 지금 이 구간 최고의 [1등상]",
+        value=f"👉 **{best_reward['original']}**",
+        inline=False
+    )
+
+    # 전체 순위 리스트 메달 이모지 처리
+    rank_text = ""
+    medals = ["🥇", "🥈", "🥉", "🏅"]
+    for idx, item in enumerate(analyzed_rewards):
+        medal = medals[idx] if idx < len(medals) else "•"
+        rank_text += f"{medal} **{idx+1}위**: {item['original']}\n"
+        
+    embed.add_field(name="📋 보상 선택 우선순위", value=rank_text, inline=False)
+
+    if unknown_rewards:
+        embed.add_field(name="⚠️ 인식 실패 (오타 확인)", value=f"`{', '.join(unknown_rewards)}`", inline=False)
+
+    embed.set_footer(text=f"기준: lo4.app 층수 스케일링 ({int(target_floor)}층 가중치 적용)")
     await ctx.send(embed=embed)
 
 
