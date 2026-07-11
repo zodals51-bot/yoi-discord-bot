@@ -123,6 +123,54 @@ async def calculate_auction(ctx, price: int = None):
 
 
 # =========================
+# 🌊 지옥 보상효율표 및 확률 분석 (!지옥효율)
+# =========================
+@bot.command(name="지옥효율")
+async def show_hell_reward_efficiency(ctx):
+    embed = discord.Embed(
+        title="🌋 낙원 : 지옥 콘텐츠 구간별 보상 효율표", 
+        url="https://m.lopec.kr/tool/reward",
+        color=0xE74C3C,
+        description="💡 **Lopec(로펙) 도구 기준** 최신 재화 가치 산정 결과입니다.\n재화 시세에 따라 미세 변동이 있을 수 있으나 큐브 대비 효율성이 우세합니다."
+    )
+    
+    embed.add_field(
+        name="💎 1640 구간 (기대 가치: 약 14,500 G)", 
+        value="• 주요 드롭: 운명 파괴석/수호석, 카르마 돌파석, 젬 랜덤 상자\n• 효율 분석: **큐브보다 소폭 우세**", 
+        inline=False
+    )
+    embed.add_field(
+        name="💎 1700 구간 (기대 가치: 약 23,000 G)", 
+        value="• 주요 드롭: 상위 운명 재화 시리즈, 성장의 더스트, 실링 상자\n• 효율 분석: 🔥 **추천 파밍 구간**", 
+        inline=False
+    )
+    embed.add_field(
+        name="💎 1730 최상위 구간 (기대 가치: 최대 115,000 G 이상)", 
+        value="• 주요 드롭: 엔드게임 전용 파괴/수호석 결정, 최상위 돌파석, 젬 선택 상자\n• 효율 분석: 🌟 **원정대 스펙업 필수 교환 1순위**", 
+        inline=False
+    )
+    
+    embed.add_field(
+        name="━━━━━━━━━━━━━━━━━━━━━━━━━━",
+        value="🎲 **희귀(파란색) 열쇠 5회 제한 '억까' 확률 분석**",
+        inline=False
+    )
+    embed.add_field(
+        name="📈 평균 기대 도달 층수",
+        value="• 1회 강하당 1~20층 이동 (균등 확률 1/20)\n• 5회 강하 시 평균 기대값: **52.5층**",
+        inline=True
+    )
+    embed.add_field(
+        name="🚨 5회 강하 후 '5층 마무리' 확률",
+        value="• 5번 모두 연속으로 1층씩만 나올 확률\n• `(1/20)^5` = **0.00003125%** (로또보다 희박)",
+        inline=True
+    )
+    
+    embed.set_footer(text="출처: Lopec(로펙) 리워드 효율 산정 툴 및 내부 통계 시뮬레이션")
+    await ctx.send(embed=embed)
+
+
+# =========================
 # ⏰ 알람 타이머 (장난 및 복귀 멘션용)
 # =========================
 @bot.command(name="알람")
