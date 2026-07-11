@@ -121,7 +121,7 @@ BASE_REWARD_VALUES = {
 
 
 # =========================
-# 🛡️ 상세 캐릭터 정보실 UI (!정보) -> 무한로딩 해결 완료
+# 🛡️ 상세 캐릭터 정보실 UI (!정보)
 # =========================
 @bot.command(name="정보")
 async def character_spec_search(ctx, character_name: str = None):
@@ -138,7 +138,7 @@ async def character_spec_search(ctx, character_name: str = None):
         arkpassive_data = call_lostark_api("arkpassive", character_name) 
         
         if not profile:
-            await status_msg.edit(content=f"❌ **{character_name}** 님의 정보를 찾을 수 없습니다.\n*(캐릭터명이 정확한지, 또는 `.env` 파일에 로스트아크 API 키가 제대로 들어있는지 확인해주세요!)*")
+            await status_msg.edit(content=f"❌ **{character_name}** 님의 정보를 찾을 수 없습니다.\n*(캐릭터명이 정확한지, 또는 API 키 연동 상태를 확인해주세요!)*")
             return
 
         # 1. 기본 프로필
@@ -151,10 +151,11 @@ async def character_spec_search(ctx, character_name: str = None):
         exp_exp = str(profile.get("ExpeditionLevel", "0"))
         exp_lvl = str(profile.get("CharacterLevel", "0"))
         
-        # 2. 전투력 및 공격력
+        # 2. 전투력 및 공격력 (None 체크 강화)
         attack_power = "0"
         total_power = "알 수 없음"
-        for stat in profile.get("Stats", []):
+        stats_data = profile.get("Stats") or []  # API가 빈 값을 줄 경우 빈 리스트로 처리
+        for stat in stats_data:
             s_type = str(stat.get("Type", ""))
             s_value = str(stat.get("Value", "0"))
             
@@ -165,7 +166,7 @@ async def character_spec_search(ctx, character_name: str = None):
                 clean_val = re.sub(r'[^\d]', '', s_value)
                 if clean_val.isdigit(): total_power = f"{int(clean_val):,}"
 
-        # 3. 아크 패시브
+        # 3. 아크 패시브 (None 체크 강화)
         grid_nodes = []
         points_info = []
         is_ark_passive = False
@@ -174,9 +175,10 @@ async def character_spec_search(ctx, character_name: str = None):
             is_ark_passive = arkpassive_data.get("IsEffect", False)
             
         if is_ark_passive:
-            for p in arkpassive_data.get("Points", []):
+            # get("Points")가 None일 수도 있으므로 or [] 처리
+            for p in (arkpassive_data.get("Points") or []):
                 points_info.append(f"{p.get('Name')} {p.get('Value')}P")
-            for eff in arkpassive_data.get("Effects", []):
+            for eff in (arkpassive_data.get("Effects") or []):
                 e_name = eff.get("Name", "")
                 if e_name: grid_nodes.append(f"• {e_name}")
             ark_passive_status = " | ".join(points_info)
@@ -187,10 +189,10 @@ async def character_spec_search(ctx, character_name: str = None):
         if not grid_nodes and is_ark_passive:
             grid_nodes = ["• 활성화된 아크 그리드 노드가 없습니다 (미개방)."]
 
-        # 4. 장비 세팅
+        # 4. 장비 세팅 (None 체크 강화)
         weapon_name = "장비 정보 없음"
         armor_set_name = "장비 정보 없음"
-        if equipment:
+        if equipment and isinstance(equipment, list):
             for item in equipment:
                 i_type = item.get("Type", "")
                 clean_name = re.sub(r'\[.*?\]|\+\d+\s+', '', item.get("Name", "")).strip()
@@ -199,12 +201,13 @@ async def character_spec_search(ctx, character_name: str = None):
                 elif i_type in ["투구", "상의", "하의", "장갑", "어깨"] and armor_set_name == "장비 정보 없음":
                     armor_set_name = re.sub(r'투구|상의|하의|장갑|어깨', '', clean_name).strip()
 
-        # 5. 각인 필터링
+        # 5. 각인 필터링 (None 체크 강화)
         eng_text = ""
         if is_ark_passive:
             eng_text = "• 🌀 **아크 패시브 가동 중**\n(기존 각인 비활성화 됨)"
-        elif engravings_data and "Effects" in engravings_data:
-            for eng in engravings_data["Effects"]:
+        elif engravings_data:
+            eng_effects = engravings_data.get("Effects") or []
+            for eng in eng_effects:
                 e_name = eng.get("Name", "")
                 if e_name and not any(x in e_name for x in ["진화", "깨달음", "도약"]):
                     eng_text += f"• 🟥 **{e_name}**\n"
@@ -587,7 +590,7 @@ async def create_raid_party(ctx, size: int = None, *, title: str = "공격대 �
 
 
 # =========================
-# 🎲 큐브 매칭 정산 시스템
+# 🎲 큐 매칭 정산 시스템
 # =========================
 class CubeCalculatorModal(discord.ui.Modal, title="🎲 캐릭터별 큐브 매칭 정산"):
     my_tickets = discord.ui.TextInput(label="내 캐릭별 티켓 현황", style=discord.TextStyle.long, required=True)
@@ -656,7 +659,7 @@ class CubeView(discord.ui.View):
 
 
 # =========================
-# 🛡️ 길드 인증 시스템 (사진과 똑같이 구현 & 역할 자동 부여)
+# 🛡️ 길드 인증 시스템
 # =========================
 class VerifyModal(discord.ui.Modal, title="로스트아크 인증"):
     character_name = discord.ui.TextInput(label="캐릭터 이름", placeholder="캐릭터 이름 입력", required=True)
@@ -700,7 +703,7 @@ class VerifyModal(discord.ui.Modal, title="로스트아크 인증"):
                 try: await member.add_roles(role)
                 except: pass
                 
-        # 3. 초록색 체크 모양 Embed 완성 (사진과 동일한 UI)
+        # 3. 초록색 체크 모양 Embed 완성
         embed = discord.Embed(title="✅ 인증 완료", description=f"{char_name}님 환영합니다.", color=0x57F287)
         await interaction.followup.send(embed=embed, ephemeral=True)
 
@@ -739,6 +742,5 @@ async def 인증패널(ctx):
 @bot.command()
 async def 큐브계산기(ctx): 
     await ctx.send(embed=discord.Embed(title="🎲 큐브 매칭", color=0x2B2D31), view=CubeView())
-
 
 bot.run(DISCORD_TOKEN)
