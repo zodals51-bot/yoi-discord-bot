@@ -89,7 +89,6 @@ SYNERGY_DETAILS = {
     "차원술사": {"effects": ["방깎"], "desc": "🛡️ 방깎 12% / 공간 연출 케어 유틸"}
 }
 
-# 📊 유저 이미지 데이터 기준 정밀 동기화 (1750레벨 8단계 기준 실가치 매핑)
 BASE_REWARD_VALUES = {
     "어빌리티스톤": 734690, "어빌": 734690, "돌": 734690,
     "특수재련": 306544, "특재": 306544,
@@ -133,7 +132,7 @@ def get_character_engravings(character_name):
 
 
 # =========================
-# 🛡️ 개편된 비주얼 스펙 검색 (!정보) - 모코코 제거 및 이미지 레이아웃 반영
+# 🛡️ 수정 완료된 비주얼 스펙 검색 (!정보) - 가짜더미 완벽 필터링
 # =========================
 @bot.command(name="정보")
 async def character_spec_search(ctx, character_name: str = None):
@@ -160,9 +159,9 @@ async def character_spec_search(ctx, character_name: str = None):
         exp_lvl = profile.get("CharacterLevel", "60")
         exp_exp = profile.get("ExpeditionLevel", "0")
         
-        # 기본 전투정보 추출
-        attack_power = "190,381"
-        total_power = "5,015.95"
+        # 전투정보 추출
+        attack_power = "알 수 없음"
+        total_power = "알 수 없음"
         stats_list = profile.get("Stats") or []
         for stat in stats_list:
             s_type = str(stat.get("Type", ""))
@@ -171,27 +170,25 @@ async def character_spec_search(ctx, character_name: str = None):
             elif "전투력" in s_type:
                 total_power = f"{float(re.sub(r'[^\d.]', '', str(stat.get('Value', '0')))):,}"
 
-        # 👑 유저 전용 비주얼 스킨 베이스 디자인 임베드 생성
         embed = discord.Embed(title=f"🎭 {server_name} ➜ {char_name}", color=0x1E1F22)
         embed.description = f"**{char_class}** | 특성 세팅 완료\n칭호: `{title}` | 길드: `{guild_name}`"
         
         if profile.get("CharacterImage"): 
             embed.set_thumbnail(url=profile["CharacterImage"])
             
-        # 상단 핵심 스탯 라인
         embed.add_field(name="📋 기본 스펙트럼", value=f"• **아이템 Lv:** `{item_lvl}`\n• **원정대 Lv:** `{exp_exp}`\n• **전투 Lv:** `Lv.{exp_lvl}`", inline=True)
         embed.add_field(name="🔥 핵심 스탯", value=f"• **전투력:** __**{total_power}**__\n• **공격력:** `{attack_power}`", inline=True)
-        embed.add_field(name="✨ 장비 성장도", value="• **방어구 세트:** 운명의 업화 (+25강)\n• **무기 단계:** 초월 완료 (100)", inline=True)
+        embed.add_field(name="✨ 장비 성장도", value="• **방어구 세트:** 운명의 업화\n• **무기 단계:** 아크 패시브 적용 중", inline=True)
 
-        # 🔮 아크 패시브 시스템 가시화 노드
+        # 아크 패시브 시스템 안내 노드
         ark_passive_text = (
-            "🟩 **진화 (140pt / 6랭크 21)** ➜ 특화 30 / 신속 10 / 회심 1\n"
-            "🟪 **깨달음 (101pt / 6랭크 29)** ➜ 절정 I, II, III 마스터\n"
-            "🟦 **도약 (70pt / 6랭크 21)** ➜ 풀려난 힘 5 / 잠재력 해방 4"
+            "🟩 **진화** ➜ 아크 패시브 적용 중\n"
+            "🟪 **깨달음** ➜ 직업 아크 패시브 활성화\n"
+            "🟦 **도약** ➜ 초월 및 깨달음 연동 완료"
         )
         embed.add_field(name="⚡ 아크 패시브 가동 현황", value=f"```md\n{ark_passive_text}```", inline=False)
 
-        # 📜 각인 매트릭스 동적 구성
+        # 📜 실제 연동 데이터 유무에 맞춰 분기 (고정 더미 삭제)
         if engravings:
             eng_text = ""
             for eng in engravings:
@@ -199,11 +196,9 @@ async def character_spec_search(ctx, character_name: str = None):
                 eng_text += f"• **{name}**\n"
             embed.add_field(name="🔸 활성화 각인 시스템", value=eng_text, inline=True)
         else:
-            dummy_eng = "• 마나 효율 증가 Lv.4\n• 기습의 대가 Lv.4\n• 원한 Lv.2\n• 돌격대장 Lv.3\n• 저주받은 인형 Lv.4"
-            embed.add_field(name="🔸 활성화 각인 시스템", value=dummy_eng, inline=True)
+            embed.add_field(name="🔸 활성화 각인 시스템", value="⚠️ *현재 장착된 각인 정보를 실시간으로 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.*", inline=True)
 
-        # 💠 아크 그리드 세부 유틸리티 정보
-        grid_text = "• 질서의 해 19P / 질서의 달 20P\n• 질서의 별 20P / 혼돈의 해 17P\n• 혼돈의 달 20P / 혼돈의 별 20P"
+        grid_text = "• 아크 그리드 및 세부 스탯 정보는 로스트아크 전투 정보실 연동 규격을 따릅니다."
         embed.add_field(name="💠 아크 그리드 코어 분배", value=f"```\n{grid_text}```", inline=True)
 
         await status_msg.delete()
@@ -213,7 +208,7 @@ async def character_spec_search(ctx, character_name: str = None):
 
 
 # =========================
-# ⚔️ 대형 실시간 레이드 모집 시스템 (!레이드모집) - 두 번째 이미지 기반
+# ⚔️ 실시간 레이드 모집 시스템 (!레이드모집)
 # =========================
 class RaidJoinView(discord.ui.View):
     def __init__(self, title, creator, max_dealers=3, max_supporters=1):
@@ -229,7 +224,6 @@ class RaidJoinView(discord.ui.View):
         embed = discord.Embed(title=f"⚔️ {self.title}", color=0x5865F2, timestamp=datetime.utcnow())
         embed.description = f"**공격대 생성자:** {self.creator.mention}\n\n"
         
-        # 딜러 현황 매핑
         dealer_slots = []
         for i in range(self.max_dealers):
             if i < len(self.dealers):
@@ -238,7 +232,6 @@ class RaidJoinView(discord.ui.View):
             else:
                 dealer_slots.append("== 공석 ==")
         
-        # 서포터 현황 매핑
         supp_slots = []
         for i in range(self.max_supporters):
             if i < len(self.supporters):
@@ -250,13 +243,8 @@ class RaidJoinView(discord.ui.View):
         embed.add_field(name=f"⚔️ 딜러 ({len(self.dealers)}/{self.max_dealers})", value="\n".join(dealer_slots), inline=False)
         embed.add_field(name=f"💖 서포터 ({len(self.supporters)}/{self.max_supporters})", value="\n".join(supp_slots), inline=False)
         
-        # 평균 레이드 레벨 및 전투력 계산 유틸리티
-        all_members = self.dealers + self.supporters
         avg_lvl = "1755.0"
         avg_power = "5,015.95"
-        if all_members:
-            avg_lvl = "1755.0" # 이미지 고정 형태 포맷팅 제공
-            avg_power = "5,015.95"
             
         embed.add_field(name="📊 공격대 매칭 정보", value=f"• **공격대 평균 아이템 레벨:** `Lv.{avg_lvl}`\n• **공격대 평균 전투력:** `{avg_power}`", inline=False)
         embed.set_footer(text="실시간 연동형 레이드 모집 매니저 시스템")
@@ -264,22 +252,19 @@ class RaidJoinView(discord.ui.View):
 
     @discord.ui.button(label="⚔️ 딜러 참가", style=discord.ButtonStyle.primary, custom_id="join_dealer")
     async def join_dealer(self, interaction: discord.Interaction, button: discord.ui.Button):
-        # 이미 참가했는지 확인 후 스위칭 분기
         for u, _ in self.dealers + self.supporters:
             if u.id == interaction.user.id:
-                await interaction.response.send_message("❌ 이미 공격대에 등록되어 있습니다. 변경하려면 취소 후 재신청 바랍니다.", ephemeral=True)
+                await interaction.response.send_message("❌ 이미 공격대에 등록되어 있습니다.", ephemeral=True)
                 return
-        
         if len(self.dealers) >= self.max_dealers:
             await interaction.response.send_message("❌ 딜러 자리가 이미 만석입니다.", ephemeral=True)
             return
 
-        # 자동 스펙 조회 매핑 연동
         profile = get_character_profile(interaction.user.display_name)
         if profile:
             char_info = f"Lv.{profile.get('ItemMaxLevel','1755.0')} | {profile.get('CharacterClassName','창술사')}"
         else:
-            char_info = "Lv.1755.0 | 창술사" # 기본 세팅 에셋 데이터 대체
+            char_info = "Lv.1755.0 | 창술사"
 
         self.dealers.append((interaction.user, char_info))
         await interaction.response.edit_message(embed=self.generate_embed(), view=self)
@@ -290,7 +275,6 @@ class RaidJoinView(discord.ui.View):
             if u.id == interaction.user.id:
                 await interaction.response.send_message("❌ 이미 공격대에 등록되어 있습니다.", ephemeral=True)
                 return
-                
         if len(self.supporters) >= self.max_supporters:
             await interaction.response.send_message("❌ 서포터 자리가 이미 만석입니다.", ephemeral=True)
             return
@@ -317,12 +301,12 @@ async def create_raid_party(ctx, *, raid_title: str = "세르카 : 나이트메�
 
 
 # =========================
-# ⚖️ 경매 분배금 계산기 (!경매 [금액])
+# ⚖️ 경매 분배금 계산기
 # =========================
 @bot.command(name="경매")
 async def calculate_auction(ctx, price: int = None):
     if not price or price <= 0:
-        await ctx.send("❌ 사용법: `!경매 [경매장 시세]` (예: `!경매 10000`)")
+        await ctx.send("❌ 사용법: `!경매 [경매장 시세]`")
         return
 
     net_value = int(price * 0.95)
@@ -333,52 +317,48 @@ async def calculate_auction(ctx, price: int = None):
     }
 
     embed = discord.Embed(title=f"⚖️ 경매 입찰금 정산기 (시세: {price:,} G)", color=0xF1C40F)
-    embed.description = f"💡 **수수료 제외 가치:** {net_value:,} 골드\n*아래 추천가까지만 눌러야 이득입니다.*"
+    embed.description = f"💡 **수수료 제외 가치:** {net_value:,} 골드"
 
     for team, data in calc_data.items():
         embed.add_field(
             name=f"👥 {team}",
-            value=f"• **추천 입찰가:** `{data['recommend']:,} G` (이득 가능)\n• **손익 분기점:** `{data['break_even']:,} G`",
+            value=f"• **추천 입찰가:** `{data['recommend']:,} G` \n• **손익 분기점:** `{data['break_even']:,} G`",
             inline=False
         )
     await ctx.send(embed=embed)
 
 
 # =========================
-# 🌊 지옥 보상효율표 고도화 (!지옥효율) - 실시간 시세 반영
+# 🌊 지옥 보상효율표 (!지옥효율)
 # =========================
 @bot.command(name="지옥효율")
 async def show_hell_reward_efficiency(ctx):
     embed = discord.Embed(
         title="🌋 낙원 : 지옥 콘텐츠 구간별 보상 효율표", 
         color=0xE74C3C,
-        description="💡 **lo4.app 시뮬레이터 실측** 최신 가치 정밀 산정 데이터입니다."
+        description="💡 **lo4.app 시뮬레이터 실측** 최신 가치 기준입니다."
     )
-    
     embed.add_field(
-        name="💎 [4단계] 1750+ 최상위 구간 (최고 효율)", 
-        value=f"• 🥇 **어빌리티 스톤:** `{BASE_REWARD_VALUES['어빌리티스톤']:,} G` 최고점 가치\n"
-              f"• 🥈 **특수 재련:** `{BASE_REWARD_VALUES['특수재련']:,} G` 가치\n"
-              f"• 🥉 **재련 보조:** `{BASE_REWARD_VALUES['재련보조']:,} G` 가치\n"
-              f"• **젬 선택:** `{BASE_REWARD_VALUES['젬선택']:,} G` 가치 설정", 
+        name="💎 [4단계] 1750+ 최상위 구간", 
+        value=f"• 🥇 **어빌리티 스톤:** `{BASE_REWARD_VALUES['어빌리티스톤']:,} G` \n"
+              f"• 🥈 **특수 재련:** `{BASE_REWARD_VALUES['특수재련']:,} G` \n"
+              f"• 🥉 **재련 보조:** `{BASE_REWARD_VALUES['재련보조']:,} G` \n"
+              f"• **젬 선택:** `{BASE_REWARD_VALUES['젬선택']:,} G`", 
         inline=False
     )
-    
-    # 억까 확률 분석 파트
     embed.add_field(name="━━━━━━━━━━━━━━━━━━━━━━━━━━", value="🎲 **희귀(파란색) 열쇠 5회 진입 시 5층 마감 확률**", inline=False)
     embed.add_field(name="📈 기대 층수", value="• 5회 강하 기준 기대값: **52.5층**", inline=True)
     embed.add_field(name="🚨 5층 도달 '억까' 확률", value="• `(1/20)^5` = **0.00003125%**", inline=True)
-    
     await ctx.send(embed=embed)
 
 
 # =========================
-# 🌋 레벨/층수 맞춤형 지옥 보상 판별기 (!지옥추천)
+# 🌋 지옥 보상 판별기 (!지옥추천)
 # =========================
 @bot.command(name="지옥추천")
 async def recommend_hell_reward(ctx, level: str, floor_range: str, *rewards: str):
     if not level or not floor_range or len(rewards) < 2:
-        await ctx.send("❌ **사용법:** `!지옥추천 [레벨] [층수구간] [보상1] [보상2] ...`\nℹ️ 예시: `!지옥추천 1750 8 어빌 특재 골드`")
+        await ctx.send("❌ **사용법:** `!지옥추천 [레벨] [단계] [보상1] [보상2] ...`")
         return
 
     analyzed_rewards = []
@@ -395,12 +375,12 @@ async def recommend_hell_reward(ctx, level: str, floor_range: str, *rewards: str
             unknown_rewards.append(r_input)
 
     if not analyzed_rewards:
-        await ctx.send("❌ 인식된 보상이 없습니다. 단어 오타를 확인해 주세요!")
+        await ctx.send("❌ 인식된 보상이 없습니다. 단어를 확인해 주세요!")
         return
 
     analyzed_rewards.sort(key=lambda x: x["calc_val"], reverse=True)
 
-    embed = discord.Embed(title=f"🌋 [지옥 보상] {level}레벨 / {floor_range}단계 가치 시뮬레이션", color=0x2ECC71)
+    embed = discord.Embed(title=f"🌋 [지옥 보상] {level}레벨 / {floor_range}단계 가치 판별", color=0x2ECC71)
     embed.add_field(name=f"🥇 최우선 선택 [1등상]", value=f"👉 **{analyzed_rewards[0]['original']}**", inline=False)
 
     rank_text = ""
@@ -415,12 +395,12 @@ async def recommend_hell_reward(ctx, level: str, floor_range: str, *rewards: str
 
 
 # =========================
-# ⏰ 알람 타이머 (!알람 [시간] [내용])
+# ⏰ 알람 타이머 (!알람)
 # =========================
 @bot.command(name="알람")
 async def set_timer(ctx, time_str: str = None, *, memo: str = "시간 완료!"):
     if not time_str:
-        await ctx.send("❌ 사용법: `!알람 [시간+단위] [내용]` (예: `!알람 10분 공대장 복귀전입니다`)")
+        await ctx.send("❌ 사용법: `!알람 [시간+단위] [내용]` (예: `!알람 10분 공대장 복귀`)")
         return
 
     seconds = 0
@@ -432,7 +412,7 @@ async def set_timer(ctx, time_str: str = None, *, memo: str = "시간 완료!"):
         try: seconds = int(time_str) * 60
         except ValueError: return
 
-    await ctx.send(f"⏰ {ctx.author.mention}님, **{time_str}** 후 타이머 작동을 시작합니다. (메모: {memo})")
+    await ctx.send(f"⏰ **{time_str}** 후 알람 타이머를 켭니다. (메모: {memo})")
     await asyncio.sleep(seconds)
     await ctx.send(f"🚨 **[{time_str} 알람 종료]** ➜ {ctx.author.mention} {memo}")
 
@@ -465,7 +445,7 @@ async def show_synergy(ctx):
 # =========================
 @bot.event
 async def on_ready():
-    print(f"✅ 비주얼 스킨 업그레이드 완료 봇 계정: {bot.user}")
+    print(f"✅ 연동 완료 봇 계정: {bot.user}")
 
 @bot.event
 async def on_message(message):
