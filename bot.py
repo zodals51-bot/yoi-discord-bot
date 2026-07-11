@@ -22,7 +22,6 @@ intents.message_content = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-
 # =========================
 # 🏛️ 데이터베이스 (낙원 및 시너지)
 # =========================
@@ -87,8 +86,6 @@ SYNERGY_DETAILS = {
     "기상술사": {"effects": ["치적"], "desc": "🎯 치적 / 🏃 질풍 공이속"},
     "도화가": {"effects": ["방깎", "공증", "케어"], "desc": "🛡️ 낙인방깎 / ⚔️ 서포터 공증"},
     "환수사": {"effects": ["방깎"], "desc": "🛡️ 방깎"},
-    
-    # 🆕 신규 클래스 '차원술사' 시너지 수정 반영 (방깎 12%)
     "차원술사": {"effects": ["방깎"], "desc": "🛡️ 방깎 12% / 공간 연출 케어 유틸"}
 }
 
@@ -108,7 +105,133 @@ BASE_REWARD_VALUES = {
 
 
 # =========================
-# ⚖️ 경매 분배금 계산기 (!경매 [금액])
+# ⚙️ 통합 API 호출 헬퍼
+# =========================
+def call_lostark_api(endpoint, character_name):
+    try:
+        if not LOSTARK_API_KEY: return None
+        headers = {"accept": "application/json", "authorization": f"bearer {LOSTARK_API_KEY}"}
+        encoded_name = urllib.parse.quote(character_name)
+        url = f"https://developer-lostark.game.onstove.com/armories/characters/{encoded_name}/{endpoint}"
+        r = requests.get(url, headers=headers)
+        if r.status_code != 200: return None
+        return r.json()
+    except: return None
+
+
+# =========================
+# 🛡️ 상세 캐릭터 정보실 UI (!정보)
+# =========================
+@bot.command(name="정보")
+async def character_spec_search(ctx, character_name: str = None):
+    if not character_name:
+        await ctx.send("❌ 사용법: `!정보 [캐릭터이름]`")
+        return
+        
+    status_msg = await ctx.send(f"🔍 **{character_name}** 님의 아크 패시브 및 세팅 데이터를 추적 중...")
+    
+    profile = call_lostark_api("profiles", character_name)
+    engravings_data = call_lostark_api("engravings", character_name)
+    equipment = call_lostark_api("equipment", character_name)
+    arkpassive_data = call_lostark_api("arkpassive", character_name) 
+    
+    if not profile:
+        await status_msg.edit(content=f"❌ **{character_name}** 캐릭터 정보를 찾을 수 없거나 API 점검 중입니다.")
+        return
+
+    # 1. 기본 프로필
+    char_name = profile.get("CharacterName", character_name)
+    char_class = profile.get("CharacterClassName", "알 수 없음")
+    server_name = profile.get("ServerName", "알 수 없음")
+    title = profile.get("Title") or "칭호 없음"
+    guild_name = profile.get("GuildName") or "없음"
+    item_lvl = str(profile.get("ItemAvgLevel", "0")).replace(",", "")
+    exp_exp = str(profile.get("ExpeditionLevel", "0"))
+    exp_lvl = str(profile.get("CharacterLevel", "0"))
+    
+    # 2. 전투력 및 공격력
+    attack_power = "0"
+    total_power = "알 수 없음"
+    for stat in profile.get("Stats", []):
+        s_type = str(stat.get("Type", ""))
+        s_value = str(stat.get("Value", "0"))
+        
+        if s_type == "공격력":
+            clean_val = re.sub(r'[^\d]', '', s_value)
+            if clean_val.isdigit(): attack_power = f"{int(clean_val):,}"
+        elif "전투력" in s_type:
+            clean_val = re.sub(r'[^\d]', '', s_value)
+            if clean_val.isdigit(): total_power = f"{int(clean_val):,}"
+
+    # 3. 아크 패시브
+    grid_nodes = []
+    points_info = []
+    is_ark_passive = False
+    
+    if arkpassive_data:
+        is_ark_passive = arkpassive_data.get("IsEffect", False)
+        
+    if is_ark_passive:
+        for p in arkpassive_data.get("Points", []):
+            points_info.append(f"{p.get('Name')} {p.get('Value')}P")
+        for eff in arkpassive_data.get("Effects", []):
+            e_name = eff.get("Name", "")
+            if e_name: grid_nodes.append(f"• {e_name}")
+        ark_passive_status = " | ".join(points_info)
+    else:
+        grid_nodes = ["• 활성화된 아크 그리드 노드 정보가 없습니다."]
+        ark_passive_status = "아크 패시브 비활성화 상태"
+
+    if not grid_nodes and is_ark_passive:
+        grid_nodes = ["• 활성화된 아크 그리드 노드가 없습니다 (미개방)."]
+
+    # 4. 장비 세팅
+    weapon_name = "장비 정보 없음"
+    armor_set_name = "장비 정보 없음"
+    if equipment:
+        for item in equipment:
+            i_type = item.get("Type", "")
+            clean_name = re.sub(r'\[.*?\]|\+\d+\s+', '', item.get("Name", "")).strip()
+            
+            if i_type == "무기": weapon_name = clean_name
+            elif i_type in ["투구", "상의", "하의", "장갑", "어깨"] and armor_set_name == "장비 정보 없음":
+                armor_set_name = re.sub(r'투구|상의|하의|장갑|어깨', '', clean_name).strip()
+
+    # 5. 각인 필터링
+    eng_text = ""
+    if is_ark_passive:
+        eng_text = "• 🌀 **아크 패시브 가동 중**\n(기존 각인 비활성화 됨)"
+    elif engravings_data and "Effects" in engravings_data:
+        for eng in engravings_data["Effects"]:
+            e_name = eng.get("Name", "")
+            if e_name and not any(x in e_name for x in ["진화", "깨달음", "도약"]):
+                eng_text += f"• 🟥 **{e_name}**\n"
+                
+    if not eng_text: eng_text = "• ⬜ 활성화된 기존 각인 없음"
+
+    # UI 렌더링
+    embed = discord.Embed(
+        title=f"🎭 {server_name} | {char_name} ㅤ", 
+        description=f"**{char_class}** 세팅 정보 실시간 동기화\n칭호: `{title}` ㅤ|ㅤ 길드: `{guild_name}`",
+        color=0x2B2D31
+    )
+    if profile.get("CharacterImage"): 
+        embed.set_thumbnail(url=profile["CharacterImage"])
+
+    embed.add_field(name="📋 기본 정보", value=f"• 아이템 Lv: `{item_lvl}`\n• 원정대 Lv: `{exp_exp}`\n• 전투 Lv: `Lv.{exp_lvl}`", inline=True)
+    embed.add_field(name="🔥 핵심 스탯", value=f"• 전투력: `{total_power}`\n• 공격력: `{attack_power}`", inline=True)
+    embed.add_field(name="✨ 장비 세팅", value=f"• 무기: `{weapon_name}`\n• 방어구 세트: `{armor_set_name}`", inline=True)
+
+    embed.add_field(name=f"💠 {char_name} 아크 그리드 현황", value=f"```md\n" + "\n".join(grid_nodes) + "```", inline=False)
+    embed.add_field(name="⚡ 아크 패시브 가동 스펙", value=f"```md\n[현재 분배 스펙]\n➜ {ark_passive_status}```", inline=False)
+    embed.add_field(name="🔸 활성화 각인 시스템", value=eng_text, inline=True)
+
+    await status_msg.delete()
+    await ctx.send(embed=embed)
+
+
+# =========================
+# ⚖️ 경매 분배금 계산기 (!경매)
 # =========================
 @bot.command(name="경매")
 async def calculate_auction(ctx, price: int = None):
@@ -140,7 +263,7 @@ async def calculate_auction(ctx, price: int = None):
 
 
 # =========================
-# 🌊 지옥 보상효율표 및 확률 분석 (!지옥효율)
+# 🌊 지옥 보상효율표 (!지옥효율)
 # =========================
 @bot.command(name="지옥효율")
 async def show_hell_reward_efficiency(ctx):
@@ -188,7 +311,7 @@ async def show_hell_reward_efficiency(ctx):
 
 
 # =========================
-# 🌋 레벨/층수 맞춤형 지옥 보상 판별기 (!지옥추천)
+# 🌋 맞춤형 지옥 보상 판별기 (!지옥추천)
 # =========================
 @bot.command(name="지옥추천")
 async def recommend_hell_reward(ctx, level: str, floor_range: str, *rewards: str):
@@ -273,7 +396,7 @@ async def recommend_hell_reward(ctx, level: str, floor_range: str, *rewards: str
 
 
 # =========================
-# ⏰ 알람 타이머 (장난 및 복귀 멘션용)
+# ⏰ 알람 타이머 (!알람)
 # =========================
 @bot.command(name="알람")
 async def set_timer(ctx, time_str: str = None, *, memo: str = "시간 완료!"):
@@ -306,61 +429,8 @@ async def set_timer(ctx, time_str: str = None, *, memo: str = "시간 완료!"):
 
 
 # =========================
-# 기본 기능들 (정보, 낙원, 시너지, 조합, 큐브, 인증)
+# 기본 기능들 (!낙원, !시너지, !레이드조합)
 # =========================
-def get_character_profile(character_name):
-    try:
-        if not LOSTARK_API_KEY: return None
-        headers = {"accept": "application/json", "authorization": f"bearer {LOSTARK_API_KEY}"}
-        encoded_name = urllib.parse.quote(character_name)
-        url = f"https://developer-lostark.game.onstove.com/armories/characters/{encoded_name}/profiles"
-        r = requests.get(url, headers=headers)
-        if r.status_code != 200: return None
-        return r.json()
-    except: return None
-
-@bot.command(name="정보")
-async def character_spec_search(ctx, character_name: str = None):
-    if not character_name:
-        await ctx.send("❌ 사용법: `!정보 [캐릭터이름]`")
-        return
-    status_msg = await ctx.send(f"🔍 **{character_name}** 님의 데이터를 가져오는 중...")
-    profile = get_character_profile(character_name)
-    if not profile:
-        await status_msg.edit(content="❌ 캐릭터 정보를 가져오지 못했습니다.")
-        return
-    try:
-        char_name = profile.get("CharacterName", character_name)
-        char_class = profile.get("CharacterClassName", "알 수 없음")
-        title = profile.get("Title") or "없음"
-        guild_name = profile.get("GuildName") or "없음"
-        guild_rank = profile.get("GuildMemberGrade") or ""
-        raw_item_lvl = profile.get("ItemMaxLevel") or profile.get("ItemAvgLevel") or "0"
-        item_lvl = str(raw_item_lvl).replace(",", "")
-        exp_lvl = profile.get("CharacterLevel", "0")
-        exp_exp = profile.get("ExpeditionLevel", "0")
-        
-        total_power = "정보 없음"
-        stats_list = profile.get("Stats") or []
-        for stat in stats_list:
-            if "전투력" in str(stat.get("Type", "")):
-                clean_val = re.sub(r'[^\d.]', '', str(stat.get("Value", "")))
-                if clean_val: total_power = f"{int(float(clean_val)):,}"
-                break
-
-        embed = discord.Embed(title=f"🛡️ {char_name} ({char_class} / {title})", color=0x2B2D31)
-        if profile.get("CharacterImage"): embed.set_thumbnail(url=profile["CharacterImage"])
-        embed.add_field(name="🏰 소속 길드", value=f"`{guild_name}` {guild_rank}", inline=True)
-        embed.add_field(name="✨ 원정대 레벨", value=f"Lv.{exp_exp}", inline=True)
-        embed.add_field(name="⚔️ 전투 레벨", value=f"Lv.{exp_lvl}", inline=True)
-        embed.add_field(name="💎 아이템 레벨", value=f"**{item_lvl}**", inline=True)
-        embed.add_field(name="🔥 전투력", value=f"**{total_power}**", inline=True)
-        embed.add_field(name="ㅤ", value="ㅤ", inline=True)
-        await status_msg.delete()
-        await ctx.send(embed=embed)
-    except Exception as e:
-        await status_msg.edit(content="❌ 데이터 파싱 중 오류가 발생했습니다.")
-
 @bot.command(name="낙원")
 async def show_nakwon_code(ctx, job_name: str = None):
     if not job_name:
@@ -426,6 +496,63 @@ async def analyze_raid_party(ctx, *jobs: str):
     if has_backhead:
         embed.add_field(name="📐 특수 조합 코멘트", value="💡 파티에 **사멸(백/헤드) 시너지**가 포함되어 있으므로, 사멸 딜러 배치 시 시너지 효율이 극대화됩니다.", inline=False)
     await ctx.send(embed=embed)
+
+
+# =========================
+# ⚔️ 실시간 레이드 모집 UI
+# =========================
+class RaidJoinView(discord.ui.View):
+    def __init__(self, title, creator, max_dealers=3, max_supporters=1):
+        super().__init__(timeout=None)
+        self.title = title
+        self.creator = creator
+        self.max_dealers = max_dealers
+        self.max_supporters = max_supporters
+        self.dealers = [(creator, "공격대장 👑")]
+        self.supporters = []
+        
+    def generate_embed(self):
+        embed = discord.Embed(title=f"⚔️ {self.title}", description=f"**공격대 생성자:** {self.creator.mention}\n", color=0x2B2D31)
+        
+        dealer_slots = []
+        for i in range(self.max_dealers):
+            if i < len(self.dealers):
+                user, char_info = self.dealers[i]
+                dealer_slots.append(f"• {user.mention} ➜ `{char_info}`")
+            else:
+                dealer_slots.append("• == 없음 ==")
+        
+        supp_slots = []
+        for i in range(self.max_supporters):
+            if i < len(self.supporters):
+                user, char_info = self.supporters[i]
+                supp_slots.append(f"• {user.mention} ➜ `{char_info}`")
+            else:
+                supp_slots.append("• == 없음 ==")
+
+        embed.add_field(name=f"딜러 ({len(self.dealers)}/{self.max_dealers})", value="\n".join(dealer_slots), inline=False)
+        embed.add_field(name=f"서포터 ({len(self.supporters)}/{self.max_supporters})", value="\n".join(supp_slots), inline=False)
+        return embed
+
+    @discord.ui.button(label="참가신청", style=discord.ButtonStyle.success, custom_id="join_dealer")
+    async def join_dealer(self, interaction: discord.Interaction, button: discord.ui.Button):
+        for u, _ in self.dealers + self.supporters:
+            if u.id == interaction.user.id:
+                await interaction.response.send_message("❌ 이미 파티에 참가 중입니다.", ephemeral=True)
+                return
+        self.dealers.append((interaction.user, "공격대 참가자"))
+        await interaction.response.edit_message(embed=self.generate_embed(), view=self)
+
+    @discord.ui.button(label="참가취소", style=discord.ButtonStyle.danger, custom_id="leave_raid")
+    async def leave_raid(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.dealers = [item for item in self.dealers if item[0].id != interaction.user.id]
+        self.supporters = [item for item in self.supporters if item[0].id != interaction.user.id]
+        await interaction.response.edit_message(embed=self.generate_embed(), view=self)
+
+@bot.command(name="레이드모집")
+async def create_raid_party(ctx, *, raid_title: str = "[레이드] 공격대 모집"):
+    view = RaidJoinView(title=raid_title, creator=ctx.author)
+    await ctx.send(embed=view.generate_embed(), view=view)
 
 
 # =========================
@@ -498,54 +625,59 @@ class CubeView(discord.ui.View):
 
 
 # =========================
-# 길드 인증 기능 (차원술사 자동 역할 부여 대응)
+# 🛡️ 길드 인증 시스템 (사진과 똑같이 구현 & 역할 자동 부여)
 # =========================
 class VerifyModal(discord.ui.Modal, title="로스트아크 인증"):
     character_name = discord.ui.TextInput(label="캐릭터 이름", placeholder="캐릭터 이름 입력", required=True)
 
     async def on_submit(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
-        profile = get_character_profile(self.character_name.value)
+        profile = call_lostark_api("profiles", self.character_name.value)
+        
         if not profile:
-            await interaction.followup.send("❌ 캐릭터 정보를 찾을 수 없습니다.")
+            await interaction.followup.send("❌ 캐릭터 정보를 찾을 수 없습니다.", ephemeral=True)
             return
         
         guild = interaction.guild
         member = guild.get_member(interaction.user.id)
         if member is None: return
         
-        char_name = profile["CharacterName"]
-        char_class = profile["CharacterClassName"]  # API에서 '차원술사' 문자열을 그대로 반환함
+        char_name = profile.get("CharacterName", self.character_name.value)
+        char_class = profile.get("CharacterClassName", "")
         char_guild = profile.get("GuildName") or ""
         
-        # 1. 디스코드 서버 닉네임 변경 (예: 홍길동/차원술사)
-        try: await member.edit(nick=f"{char_name}/{char_class}")
-        except: pass
+        # 1. 닉네임 자동 변경 (예: 홍길동/차원술사)
+        try: 
+            await member.edit(nick=f"{char_name}/{char_class}")
+        except: 
+            pass
         
-        # 2. 추가할 직업 역할 목록 생성
+        # 2. 역할 부여 로직
         roles_to_add = [char_class]
-        
-        # 3. 길드 소속 여부에 따른 내부원 / 외부인 역할 처리
         config_guild = os.getenv("GUILD_NAME", "")
-        if char_guild.strip() == config_guild.strip() if config_guild else False:
-            member_role = os.getenv("MEMBER_ROLE", "")
+        
+        if config_guild and char_guild.strip() == config_guild.strip():
+            member_role = os.getenv("MEMBER_ROLE", "길드원")
             if member_role: roles_to_add.append(member_role)
         else:
-            roles_to_add.append(os.getenv("GUEST_ROLE", "외부인"))
+            guest_role = os.getenv("GUEST_ROLE", "외부인")
+            roles_to_add.append(guest_role)
             
-        # 4. 서버에 등록된 직업 명칭(차원술사 포함)의 역할을 찾아 유저에게 자동 지급
         for r_name in roles_to_add:
             role = discord.utils.get(guild.roles, name=r_name)
             if role: 
-                await member.add_roles(role)
+                try: await member.add_roles(role)
+                except: pass
                 
-        embed = discord.Embed(title="✅ 인증 완료", description=f"**{char_name}**({char_class})님 환영합니다.", color=0x57F287)
-        await interaction.followup.send(embed=embed)
+        # 3. 초록색 체크 모양 Embed 완성 (사진과 동일한 UI)
+        embed = discord.Embed(title="✅ 인증 완료", description=f"{char_name}님 환영합니다.", color=0x57F287)
+        await interaction.followup.send(embed=embed, ephemeral=True)
 
 class VerifyView(discord.ui.View):
     def __init__(self): super().__init__(timeout=None)
     @discord.ui.button(label="인증하기", style=discord.ButtonStyle.green, custom_id="verify_btn")
-    async def verify(self, interaction: discord.Interaction, button: discord.ui.Button): await interaction.response.send_modal(VerifyModal())
+    async def verify(self, interaction: discord.Interaction, button: discord.ui.Button): 
+        await interaction.response.send_modal(VerifyModal())
 
 
 # =========================
@@ -558,13 +690,23 @@ async def on_ready():
     print(f"✅ 로그인 완료: {bot.user}")
 
 @bot.event
+async def on_member_join(member):
+    # 길드원이 새로 들어왔을 때 안내 메시지
+    channel = discord.utils.get(member.guild.text_channels, name="인증")
+    if channel:
+        await channel.send(f"👋 {member.mention}님 환영합니다! `!인증패널`에 있는 버튼을 눌러 역할을 부여받으세요.")
+
+@bot.event
 async def on_message(message):
     if message.author.bot: return
     await bot.process_commands(message)
 
 @bot.command()
-async def 인증패널(ctx): await ctx.send(embed=discord.Embed(title="로스트아크 길드 인증", color=0x2B2D31), view=VerifyView())
+async def 인증패널(ctx): 
+    await ctx.send(embed=discord.Embed(title="로스트아크 길드 인증", color=0x2B2D31), view=VerifyView())
+
 @bot.command()
-async def 큐브계산기(ctx): await ctx.send(embed=discord.Embed(title="🎲 큐브 매칭", color=0x2B2D31), view=CubeView())
+async def 큐브계산기(ctx): 
+    await ctx.send(embed=discord.Embed(title="🎲 큐브 매칭", color=0x2B2D31), view=CubeView())
 
 bot.run(DISCORD_TOKEN)
