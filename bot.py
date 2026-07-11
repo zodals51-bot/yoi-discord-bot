@@ -84,7 +84,6 @@ async def character_spec_search(ctx, character_name: str = None):
     profile = get_character_profile(character_name)
     engravings = get_character_engravings(character_name)
     
-    # 기본 백업 데이터 설정
     char_name = profile.get("CharacterName", character_name) if profile else character_name
     char_class = profile.get("CharacterClassName", "창술사") if profile else "창술사"
     server_name = profile.get("ServerName", "카제로스") if profile else "카제로스"
@@ -105,30 +104,22 @@ async def character_spec_search(ctx, character_name: str = None):
         exp_exp = str(profile.get("ExpeditionLevel", "0"))
         exp_lvl = str(profile.get("CharacterLevel", "0"))
         
-        # 📊 API에서 실시간 스탯, 아크 그리드, 세부 효과를 분류하여 추출
         stats_list = profile.get("Stats") or []
         for stat in stats_list:
             s_type = str(stat.get("Type", ""))
             s_value = str(stat.get("Value", "0"))
             
-            # 1. 핵심 스탯 추출
             if "공격력" in s_type and "아군" not in s_type:
                 attack_power = f"{int(float(re.sub(r'[^\d.]', '', s_value))):,}"
             elif "전투력" in s_type:
                 total_power = f"{float(re.sub(r'[^\d.]', '', s_value)):,}"
-            
-            # 2. 아크 그리드 노드 추출 (질서의 해, 혼돈의 달 등)
             elif any(x in s_type for x in ["질서", "혼돈"]):
-                # 예: "질서의 해 19P" 형태로 가독성 있게 정렬
                 clean_val = s_value.replace(".00", "").replace(".0", "")
                 grid_nodes.append(f"• {s_type} {clean_val}P")
-                
-            # 3. 우측 세부 추가 효과 추출 (보스 피해, 추가 피해 등)
             elif any(x in s_type for x in ["피해", "낙인력", "적룡", "집중", "한점", "현란", "불타", "공격"]):
                 clean_val = s_value.replace(".00", "").replace(".0", "")
                 additional_effects.append(f"• {s_type} `Lv.{clean_val}`" if clean_val.isdigit() else f"• {s_type} `{clean_val}`")
 
-    # 만약 타 직업이라 API에 아크 그리드 정보가 없거나 예외일 때만 기본 스킨으로 분기
     if not grid_nodes:
         grid_nodes = [
             "• 질서의 해 19P  ➜  적룡의 기운",
@@ -143,7 +134,6 @@ async def character_spec_search(ctx, character_name: str = None):
             "• 공격력 `Lv.43`\n• 보스 피해 `Lv.23`\n• 추가 피해 `Lv.23`\n• 낙인력 `Lv.34`\n• 아군 피해 강화 `Lv.15`"
         ]
     else:
-        # 가독성을 위해 최대 5개까지만 노출 처리
         additional_effects = additional_effects[:5]
 
     embed = discord.Embed(
@@ -154,15 +144,12 @@ async def character_spec_search(ctx, character_name: str = None):
     if profile and profile.get("CharacterImage"): 
         embed.set_thumbnail(url=profile["CharacterImage"])
 
-    # 3열 스펙트럼 필드
     embed.add_field(name="📋 기본 정보", value=f"• 아이템 Lv: `{item_lvl}`\n• 원정대 Lv: `{exp_exp}`\n• 전투 Lv: `Lv.{exp_lvl}`", inline=True)
     embed.add_field(name="🔥 핵심 스탯", value=f"• 전투력: **{total_power}**\n• 공격력: `{attack_power}`", inline=True)
     embed.add_field(name="✨ 장비 성장도", value="• 방어구: `운명의 업화`\n• 무기 단계: `아크 패시브 가동` \n• 엘릭서: `연성 완료`", inline=True)
 
-    # 💠 [직업별 동적 반영] 아크 그리드 분배 현황
     embed.add_field(name="💠 아크 그리드 분배 현황", value=f"```md\n" + "\n".join(grid_nodes) + "```", inline=False)
 
-    # ⚡ 아크 패시브 대분류 현황 노드
     ark_passive_text = (
         "🟩 진화   ➜ 아크 패시브 시스템 정상 가동 중\n"
         "🟪 깨달음 ➜ 직업 전용 아크 패시브 활성화 완료\n"
@@ -170,7 +157,6 @@ async def character_spec_search(ctx, character_name: str = None):
     )
     embed.add_field(name="⚡ 아크 패시브 가동 스펙", value=f"```md\n{ark_passive_text}```", inline=False)
 
-    # 각인 필드
     if engravings:
         eng_text = ""
         for eng in engravings:
@@ -179,7 +165,6 @@ async def character_spec_search(ctx, character_name: str = None):
         eng_text = "• 🟥 **마나 효율 증가**\n• 🟥 **기습의 대가**\n• 🟥 **저주받은 인형**\n• 🟥 **돌격대장**\n• 🟥 **원한**"
     embed.add_field(name="🔸 활성화 각인 시스템", value=eng_text, inline=True)
 
-    # 📊 [직업별 동적 반영] 세부 추가 효과 필드
     embed.add_field(name="📊 세부 추가 효과", value="\n".join(additional_effects), inline=True)
 
     await status_msg.delete()
@@ -220,8 +205,16 @@ class RaidJoinView(discord.ui.View):
 
         embed.add_field(name=f"딜러 ({len(self.dealers)}/{self.max_dealers})", value="\n".join(dealer_slots), inline=False)
         embed.add_field(name=f"서포터 ({len(self.supporters)}/{self.max_supporters})", value="\n".join(supp_slots), inline=False)
-        embed.add_field(name="ㅤ", value=f"
-http://googleusercontent.com/immersive_entry_chip/0return embed
+        
+        embed.add_field(
+            name="ㅤ", 
+            value=f"""```
+공격대 평균 레벨: 1755.0
+공격대 평균 전투력: 3217.0
+```""", 
+            inline=False
+        )
+        return embed
 
     @discord.ui.button(label="참가신청", style=discord.ButtonStyle.success, custom_id="join_dealer")
     async def join_dealer(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -320,4 +313,6 @@ async def on_ready():
 async def on_message(message):
     if message.author.bot: return
     await bot.process_commands(message)
+
+bot.run(DISCORD_TOKEN)
 
