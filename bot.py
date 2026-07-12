@@ -24,7 +24,7 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 
 
 # =========================
-# ⚙️ 개별 API 호출 헬퍼 (인증 기능용)
+# ⚙️ 개별 API 호출 헬퍼 (데이터 증발 방지를 위해 개별 호출로 롤백)
 # =========================
 def call_lostark_api(endpoint, character_name):
     try:
@@ -121,7 +121,7 @@ BASE_REWARD_VALUES = {
 
 
 # =========================
-# 🛡️ 상세 캐릭터 정보실 UI (!정보)
+# 🛡️ 상세 캐릭터 정보실 UI (!정보) -> 특성비 출력 및 각인/그리드 완벽 픽스
 # =========================
 @bot.command(name="정보")
 async def character_spec_search(ctx, character_name: str = None):
@@ -129,29 +129,18 @@ async def character_spec_search(ctx, character_name: str = None):
         await ctx.send("❌ 사용법: `!정보 [캐릭터이름]`")
         return
         
-    status_msg = await ctx.send(f"🔍 **{character_name}** 님의 아크 패시브 및 세팅 데이터를 추적 중...")
+    status_msg = await ctx.send(f"🔍 **{character_name}** 님의 데이터를 추적 중입니다...")
     
     try:
-        # 통합 Bulk API 사용 (한 번의 호출로 모든 데이터 확실하게 조회)
-        headers = {"accept": "application/json", "authorization": f"bearer {LOSTARK_API_KEY}"}
-        encoded_name = urllib.parse.quote(character_name)
-        url = f"https://developer-lostark.game.onstove.com/armories/characters/{encoded_name}"
-        r = requests.get(url, headers=headers)
-        
-        if r.status_code != 200:
-            await status_msg.edit(content=f"❌ **{character_name}** 님의 정보를 찾을 수 없습니다.\n*(캐릭터명이 정확한지, 또는 API 키 연동 상태를 확인해주세요!)*")
+        # 데이터 증발을 막기 위해 4개의 핵심 데이터를 확실하게 개별로 요청합니다.
+        profile = call_lostark_api("profiles", character_name)
+        if not profile:
+            await status_msg.edit(content=f"❌ **{character_name}** 님의 정보를 찾을 수 없습니다.\n*(캐릭터명이 정확한지, 또는 API 연동 상태를 확인해주세요!)*")
             return
             
-        data = r.json()
-        if not data or not data.get("ArmoryProfile"):
-            await status_msg.edit(content=f"❌ **{character_name}** 님의 생성된 프로필 데이터가 없습니다.")
-            return
-
-        # 데이터를 각각의 항목으로 안전하게 분류
-        profile = data.get("ArmoryProfile") or {}
-        equipment = data.get("ArmoryEquipment") or []
-        engravings_data = data.get("ArmoryEngraving") or {}
-        arkpassive_data = data.get("ArkPassive") or {}
+        engravings_data = call_lostark_api("engravings", character_name) or {}
+        equipment = call_lostark_api("equipment", character_name) or []
+        arkpassive_data = call_lostark_api("arkpassive", character_name) or {}
 
         # 1. 기본 프로필
         char_name = profile.get("CharacterName", character_name)
@@ -163,12 +152,11 @@ async def character_spec_search(ctx, character_name: str = None):
         exp_exp = str(profile.get("ExpeditionLevel", "0"))
         exp_lvl = str(profile.get("CharacterLevel", "0"))
         
-        # 2. 스탯 (특성 상위 2개 추출 및 공격력)
+        # 2. 공격력 및 핵심 특성 2개 (특성비) 추출
         attack_power = "0"
         combat_stats = {}
         
-        stats_data = profile.get("Stats") or []
-        for stat in stats_data:
+        for stat in profile.get("Stats") or []:
             s_type = str(stat.get("Type", ""))
             s_value = str(stat.get("Value", "0"))
             
@@ -181,63 +169,74 @@ async def character_spec_search(ctx, character_name: str = None):
             elif s_type in ["치명", "특화", "신속", "제압", "인내", "숙련"]:
                 combat_stats[s_type] = int_val
                 
-        # 높은 특성 2개 골라내기
+        # 가장 수치가 높은 특성 2개만 뽑아내기
         top_stats = sorted(combat_stats.items(), key=lambda x: x[1], reverse=True)[:2]
-        if top_stats:
-            stat_text = " / ".join([f"{k} {v}" for k, v in top_stats])
-        else:
-            stat_text = "특성 정보 없음"
+        stat_text = " / ".join([f"{k} {v}" for k, v in top_stats]) if top_stats else "특성 정보 없음"
 
         # 3. 아크 패시브
         grid_nodes = []
         points_info = []
         is_ark_passive = False
         
-        if arkpassive_data and isinstance(arkpassive_data, dict):
+        if arkpassive_data:
             is_ark_passive = arkpassive_data.get("IsEffect", False)
             
+            for p in (arkpassive_data.get("Points") or []):
+                p_name = p.get("Name", "")
+                p_val = p.get("Value", 0)
+                if p_name: points_info.append(f"{p_name} {p_val}P")
+                
+            for eff in (arkpassive_data.get("Effects") or []):
+                e_name = eff.get("Name", "")
+                if e_name: grid_nodes.append(f"• {e_name}")
+                
+        ark_passive_status = " | ".join(points_info) if points_info else "포인트 분배 정보 없음"
+        
+        if not grid_nodes:
             if is_ark_passive:
-                for p in (arkpassive_data.get("Points") or []):
-                    points_info.append(f"{p.get('Name')} {p.get('Value')}P")
-                for eff in (arkpassive_data.get("Effects") or []):
-                    e_name = eff.get("Name", "")
-                    if e_name: grid_nodes.append(f"• {e_name}")
-                ark_passive_status = " | ".join(points_info) if points_info else "포인트 분배 정보 없음"
+                grid_nodes = ["• 아크 패시브는 켜져 있으나, 활성화된 그리드 노드가 없습니다."]
             else:
-                grid_nodes = ["• 활성화된 아크 그리드 노드 정보가 없습니다."]
-                ark_passive_status = "아크 패시브 비활성화 상태"
-        else:
-            grid_nodes = ["• 활성화된 아크 그리드 노드 정보가 없습니다."]
-            ark_passive_status = "아크 패시브 비활성화 상태"
-
-        if not grid_nodes and is_ark_passive:
-            grid_nodes = ["• 아크 패시브는 켜져 있으나, 활성화된 노드가 없습니다."]
+                grid_nodes = ["• 아크 패시브 비활성화 상태입니다."]
+                ark_passive_status = "비활성화 상태"
 
         # 4. 장비 세팅
         weapon_name = "장비 정보 없음"
         armor_set_name = "장비 정보 없음"
-        if equipment and isinstance(equipment, list):
-            for item in equipment:
-                i_type = item.get("Type", "")
-                clean_name = re.sub(r'\[.*?\]|\+\d+\s+', '', item.get("Name", "")).strip()
-                # 폰트 색상 등 HTML 태그가 붙어나오는 것 방지
-                clean_name = re.sub(r'<[^>]*>', '', clean_name).strip()
-                
-                if i_type == "무기": weapon_name = clean_name
-                elif i_type in ["투구", "상의", "하의", "장갑", "어깨"] and armor_set_name == "장비 정보 없음":
-                    armor_set_name = re.sub(r'투구|상의|하의|장갑|어깨', '', clean_name).strip()
+        for item in equipment:
+            i_type = item.get("Type", "")
+            raw_name = item.get("Name", "")
+            
+            # 폰트 컬러 태그 등 지저분한 HTML 기호 제거
+            clean_name = re.sub(r'<[^>]*>', '', raw_name)
+            clean_name = re.sub(r'\[.*?\]|\+\d+\s+', '', clean_name).strip()
+            
+            if i_type == "무기": 
+                weapon_name = clean_name
+            elif i_type in ["투구", "상의", "하의", "장갑", "어깨"] and armor_set_name == "장비 정보 없음":
+                armor_set_name = re.sub(r'투구|상의|하의|장갑|어깨', '', clean_name).strip()
 
-        # 5. 각인 필터링 (아크 패시브 여부 상관없이 무조건 노출되게 수정)
+        # 5. 각인 필터링 (페널티 각인 제거 및 아크 패시브 각인 통합)
         eng_text = ""
-        eng_effects = engravings_data.get("Effects") or []
-        for eng in eng_effects:
-            e_name = eng.get("Name", "")
-            # 감소(페널티) 각인은 눈에 안 보이게 필터링
+        seen_engs = set()
+
+        def add_eng(e_name):
+            nonlocal eng_text
             if e_name and "감소" not in e_name:
-                eng_text += f"• 🟥 **{e_name}**\n"
+                e_name = e_name.strip()
+                if e_name not in seen_engs:
+                    seen_engs.add(e_name)
+                    eng_text += f"• 🟥 **{e_name}**\n"
+
+        if engravings_data:
+            # 1. 기존 장착 각인
+            for eng in engravings_data.get("Effects") or []:
+                add_eng(eng.get("Name", ""))
+            # 2. 시즌 3 아크 패시브 전용 각인
+            for eng in engravings_data.get("ArkPassiveEffects") or []:
+                add_eng(eng.get("Name", ""))
                 
         if not eng_text: 
-            eng_text = "• ⬜ 활성화된 각인 없음"
+            eng_text = "• ⬜ 활성화된 각인 정보 없음"
 
         # UI 렌더링
         embed = discord.Embed(
@@ -249,21 +248,19 @@ async def character_spec_search(ctx, character_name: str = None):
             embed.set_thumbnail(url=profile["CharacterImage"])
 
         embed.add_field(name="📋 기본 정보", value=f"• 아이템 Lv: `{item_lvl}`\n• 원정대 Lv: `{exp_exp}`\n• 전투 Lv: `Lv.{exp_lvl}`", inline=True)
-        # 높은 특성 2개(특성비) 출력
+        # 높은 특성 2개(특성비) 출력 및 전투력 제거 완수
         embed.add_field(name="🔥 핵심 스탯", value=f"• 공격력: `{attack_power}`\n• 특성비: `{stat_text}`", inline=True)
         embed.add_field(name="✨ 장비 세팅", value=f"• 무기: `{weapon_name}`\n• 방어구 세트: `{armor_set_name}`", inline=True)
 
         embed.add_field(name=f"💠 {char_name} 아크 그리드 현황", value=f"```md\n" + "\n".join(grid_nodes) + "```", inline=False)
         embed.add_field(name="⚡ 아크 패시브 가동 스펙", value=f"```md\n[현재 분배 스펙]\n➜ {ark_passive_status}```", inline=False)
-        
-        # 각인 텍스트가 항상 제대로 뜨게 설정
         embed.add_field(name="🔸 장착 각인 시스템", value=eng_text, inline=False)
 
         await status_msg.delete()
         await ctx.send(embed=embed)
         
     except Exception as e:
-        await status_msg.edit(content=f"❌ 데이터 처리 중 치명적인 오류가 발생했습니다.\n디버그 코드: `{e}`")
+        await status_msg.edit(content=f"❌ 데이터 처리 중 오류가 발생했습니다.\n디버그 코드: `{e}`")
 
 
 # =========================
