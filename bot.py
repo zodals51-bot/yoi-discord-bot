@@ -5,7 +5,6 @@ import os
 import re
 import urllib.parse
 import asyncio
-import json
 from datetime import datetime
 from dotenv import load_dotenv
 
@@ -174,67 +173,19 @@ async def character_spec_search(ctx, character_name: str = None):
         top_stats = sorted(combat_stats.items(), key=lambda x: x[1], reverse=True)[:2]
         stat_text = " / ".join([f"{k} {v}" for k, v in top_stats]) if top_stats else "특성 정보 없음"
 
-        # 3. 아크 패시브 (가동 스펙은 놔두고, 그리드만 완벽하게 리스트업)
-        grid_nodes = []
+        # 3. 아크 패시브 (가동 스펙만 남김)
         points_info = []
         is_ark_passive = False
         
         if arkpassive_data:
             is_ark_passive = arkpassive_data.get("IsEffect", False)
-            
-            # 3-1. 아크 패시브 가동 스펙 (기존처럼 유지)
             for p in (arkpassive_data.get("Points") or []):
                 p_name = p.get("Name", "")
                 p_val = p.get("Value", 0)
                 if p_name: points_info.append(f"{p_name} {p_val}P")
-                
-            # 3-2. 아크 그리드 현황 (원하시던 형식으로 파싱)
-            for eff in (arkpassive_data.get("Effects") or []):
-                node_name = eff.get("Name", "")  # 예: "한계 돌파", "최적화 훈련"
-                tooltip_str = eff.get("ToolTip", "{}")
-                
-                cat_name = ""
-                level = ""
-                
-                # API가 제공하는 ToolTip JSON을 뜯어서 정확한 카테고리와 레벨을 가져옵니다.
-                try:
-                    tooltip = json.loads(tooltip_str)
-                    for key, el in tooltip.items():
-                        if type(el) is dict and el.get("type") == "ItemTitle":
-                            val = el.get("value", {})
-                            if type(val) is dict:
-                                right = val.get("rightStr0", "") # "진화", "깨달음" 등
-                                left = val.get("leftStr0", "")   # "Lv.3" 등
-                                cat_name = re.sub(r'<[^>]*>', '', right).strip()
-                                level = re.sub(r'<[^>]*>', '', left).strip()
-                                break
-                except:
-                    pass
-                
-                # 만약 파싱에 실패했다면 텍스트에서 유추하는 백업 로직
-                if not cat_name:
-                    if "진화" in tooltip_str: cat_name = "진화"
-                    elif "깨달음" in tooltip_str: cat_name = "깨달음"
-                    elif "도약" in tooltip_str: cat_name = "도약"
-                    else: cat_name = "아크"
                     
-                icon = "🟢" if "진화" in cat_name else "🔵" if "깨달음" in cat_name else "🟣" if "도약" in cat_name else "🔸"
-                
-                # 레벨에서 숫자만 뽑기 (예: "Lv.3" -> "3")
-                level_num = re.sub(r'[^\d]', '', level)
-                level_str = f"[{level_num}] " if level_num else ""
-                
-                # 오른쪽 사진 예시 포맷 적용: 🟢 진화 : [3] 한계 돌파
-                grid_nodes.append(f"{icon} {cat_name} : {level_str}{node_name}")
-                
         ark_passive_status = " | ".join(points_info) if points_info else "포인트 분배 정보 없음"
-        
-        if not grid_nodes:
-            if is_ark_passive:
-                grid_nodes = ["• 아크 패시브는 켜져 있으나, 세팅된 노드가 없습니다."]
-            else:
-                grid_nodes = ["• 아크 패시브 비활성화 상태입니다."]
-                ark_passive_status = "비활성화 상태"
+        if not is_ark_passive: ark_passive_status = "비활성화 상태"
 
         # 4. 장비 세팅
         weapon_name = "장비 정보 없음"
@@ -278,7 +229,7 @@ async def character_spec_search(ctx, character_name: str = None):
         embed.add_field(name="🔥 핵심 스탯", value=f"• 공격력: `{attack_power}`\n• 특성비: `{stat_text}`", inline=True)
         embed.add_field(name="✨ 장비 세팅", value=f"• 무기: `{weapon_name}`\n• 방어구 세트: `{armor_set_name}`", inline=True)
 
-        embed.add_field(name=f"💠 {char_name} 아크 그리드 현황", value="\n".join(grid_nodes), inline=False)
+        # 아크 그리드 칸 제거됨
         embed.add_field(name="⚡ 아크 패시브 가동 스펙", value=f"```md\n[현재 분배 스펙]\n➜ {ark_passive_status}```", inline=False)
         embed.add_field(name="🔸 장착 각인 시스템", value=eng_text, inline=False)
 
