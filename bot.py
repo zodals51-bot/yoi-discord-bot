@@ -5,6 +5,7 @@ import os
 import re
 import urllib.parse
 import asyncio
+import json
 from datetime import datetime
 from dotenv import load_dotenv
 
@@ -24,7 +25,7 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 
 
 # =========================
-# ⚙️ 개별 API 호출 헬퍼 (데이터 증발 방지를 위해 개별 호출)
+# ⚙️ 개별 API 호출 헬퍼
 # =========================
 def call_lostark_api(endpoint, character_name):
     try:
@@ -139,17 +140,16 @@ async def character_spec_search(ctx, character_name: str = None):
     status_msg = await ctx.send(f"🔍 **{character_name}** 님의 데이터를 추적 중입니다...")
     
     try:
-        # 1. API 개별 호출 (데이터 증발 방지)
         profile = call_lostark_api("profiles", character_name)
         if not profile:
-            await status_msg.edit(content=f"❌ **{character_name}** 님의 정보를 찾을 수 없습니다.\n*(캐릭터명이 정확한지, 또는 API 연동 상태를 확인해주세요!)*")
+            await status_msg.edit(content=f"❌ **{character_name}** 님의 정보를 찾을 수 없습니다.")
             return
             
         engravings_data = call_lostark_api("engravings", character_name) or {}
         equipment = call_lostark_api("equipment", character_name) or []
         arkpassive_data = call_lostark_api("arkpassive", character_name) or {}
 
-        # 2. 기본 프로필
+        # 1. 기본 프로필 세팅
         char_name = profile.get("CharacterName", character_name)
         char_class = profile.get("CharacterClassName", "알 수 없음")
         server_name = profile.get("ServerName", "알 수 없음")
@@ -159,27 +159,22 @@ async def character_spec_search(ctx, character_name: str = None):
         exp_exp = str(profile.get("ExpeditionLevel", "0"))
         exp_lvl = str(profile.get("CharacterLevel", "0"))
         
-        # 3. 공격력 및 특성 2개 (특성비) 추출
+        # 2. 공격력 및 특성비 세팅
         attack_power = "0"
         combat_stats = {}
-        
         for stat in profile.get("Stats") or []:
             s_type = str(stat.get("Type", ""))
             s_value = str(stat.get("Value", "0"))
-            
             clean_val = re.sub(r'[^\d]', '', s_value)
             if not clean_val.isdigit(): continue
             int_val = int(clean_val)
-            
-            if s_type == "공격력":
-                attack_power = f"{int_val:,}"
-            elif s_type in ["치명", "특화", "신속", "제압", "인내", "숙련"]:
-                combat_stats[s_type] = int_val
+            if s_type == "공격력": attack_power = f"{int_val:,}"
+            elif s_type in ["치명", "특화", "신속", "제압", "인내", "숙련"]: combat_stats[s_type] = int_val
                 
         top_stats = sorted(combat_stats.items(), key=lambda x: x[1], reverse=True)[:2]
         stat_text = " / ".join([f"{k} {v}" for k, v in top_stats]) if top_stats else "특성 정보 없음"
 
-        # 4. 아크 패시브
+        # 3. 아크 패시브 (가동 스펙은 놔두고, 그리드만 완벽하게 리스트업)
         grid_nodes = []
         points_info = []
         is_ark_passive = False
@@ -187,40 +182,71 @@ async def character_spec_search(ctx, character_name: str = None):
         if arkpassive_data:
             is_ark_passive = arkpassive_data.get("IsEffect", False)
             
+            # 3-1. 아크 패시브 가동 스펙 (기존처럼 유지)
             for p in (arkpassive_data.get("Points") or []):
                 p_name = p.get("Name", "")
                 p_val = p.get("Value", 0)
                 if p_name: points_info.append(f"{p_name} {p_val}P")
                 
+            # 3-2. 아크 그리드 현황 (원하시던 형식으로 파싱)
             for eff in (arkpassive_data.get("Effects") or []):
-                e_name = eff.get("Name", "")
-                if e_name: grid_nodes.append(f"• {e_name}")
+                node_name = eff.get("Name", "")  # 예: "한계 돌파", "최적화 훈련"
+                tooltip_str = eff.get("ToolTip", "{}")
+                
+                cat_name = ""
+                level = ""
+                
+                # API가 제공하는 ToolTip JSON을 뜯어서 정확한 카테고리와 레벨을 가져옵니다.
+                try:
+                    tooltip = json.loads(tooltip_str)
+                    for key, el in tooltip.items():
+                        if type(el) is dict and el.get("type") == "ItemTitle":
+                            val = el.get("value", {})
+                            if type(val) is dict:
+                                right = val.get("rightStr0", "") # "진화", "깨달음" 등
+                                left = val.get("leftStr0", "")   # "Lv.3" 등
+                                cat_name = re.sub(r'<[^>]*>', '', right).strip()
+                                level = re.sub(r'<[^>]*>', '', left).strip()
+                                break
+                except:
+                    pass
+                
+                # 만약 파싱에 실패했다면 텍스트에서 유추하는 백업 로직
+                if not cat_name:
+                    if "진화" in tooltip_str: cat_name = "진화"
+                    elif "깨달음" in tooltip_str: cat_name = "깨달음"
+                    elif "도약" in tooltip_str: cat_name = "도약"
+                    else: cat_name = "아크"
+                    
+                icon = "🟢" if "진화" in cat_name else "🔵" if "깨달음" in cat_name else "🟣" if "도약" in cat_name else "🔸"
+                
+                # 레벨에서 숫자만 뽑기 (예: "Lv.3" -> "3")
+                level_num = re.sub(r'[^\d]', '', level)
+                level_str = f"[{level_num}] " if level_num else ""
+                
+                # 오른쪽 사진 예시 포맷 적용: 🟢 진화 : [3] 한계 돌파
+                grid_nodes.append(f"{icon} {cat_name} : {level_str}{node_name}")
                 
         ark_passive_status = " | ".join(points_info) if points_info else "포인트 분배 정보 없음"
         
         if not grid_nodes:
             if is_ark_passive:
-                grid_nodes = ["• 아크 패시브는 켜져 있으나, 활성화된 그리드 노드가 없습니다."]
+                grid_nodes = ["• 아크 패시브는 켜져 있으나, 세팅된 노드가 없습니다."]
             else:
                 grid_nodes = ["• 아크 패시브 비활성화 상태입니다."]
                 ark_passive_status = "비활성화 상태"
 
-        # 5. 장비 세팅
+        # 4. 장비 세팅
         weapon_name = "장비 정보 없음"
         armor_set_name = "장비 정보 없음"
         for item in equipment:
             i_type = item.get("Type", "")
-            raw_name = item.get("Name", "")
-            
-            clean_name = re.sub(r'<[^>]*>', '', raw_name)
-            clean_name = re.sub(r'\[.*?\]|\+\d+\s+', '', clean_name).strip()
-            
-            if i_type == "무기": 
-                weapon_name = clean_name
+            clean_name = re.sub(r'<[^>]*>|\[.*?\]|\+\d+\s+', '', item.get("Name", "")).strip()
+            if i_type == "무기": weapon_name = clean_name
             elif i_type in ["투구", "상의", "하의", "장갑", "어깨"] and armor_set_name == "장비 정보 없음":
                 armor_set_name = re.sub(r'투구|상의|하의|장갑|어깨', '', clean_name).strip()
 
-        # 6. 각인 필터링 (아크 패시브 여부 무관, 감소 페널티 제외)
+        # 5. 각인 필터링 (빨간 네모 싹 없애고 깔끔하게)
         eng_text = ""
         seen_engs = set()
 
@@ -230,7 +256,7 @@ async def character_spec_search(ctx, character_name: str = None):
                 e_name = e_name.strip()
                 if e_name not in seen_engs:
                     seen_engs.add(e_name)
-                    eng_text += f"• 🟥 **{e_name}**\n"
+                    eng_text += f"• {e_name}\n" # 🟥 이모지 완전 제거
 
         if engravings_data:
             for eng in engravings_data.get("Effects") or []:
@@ -238,23 +264,21 @@ async def character_spec_search(ctx, character_name: str = None):
             for eng in engravings_data.get("ArkPassiveEffects") or []:
                 add_eng(eng.get("Name", ""))
                 
-        if not eng_text: 
-            eng_text = "• ⬜ 활성화된 각인 정보 없음"
+        if not eng_text: eng_text = "• 활성화된 각인 정보 없음"
 
-        # 7. UI 렌더링
+        # 6. UI 렌더링
         embed = discord.Embed(
-            title=f"🎭 {server_name} | {char_name} ㅤ", 
+            title=f"🎭 {server_name} | {char_name}", 
             description=f"**{char_class}** 세팅 정보 실시간 동기화\n칭호: `{title}` ㅤ|ㅤ 길드: `{guild_name}`",
             color=0x2B2D31
         )
-        if profile.get("CharacterImage"): 
-            embed.set_thumbnail(url=profile["CharacterImage"])
+        if profile.get("CharacterImage"): embed.set_thumbnail(url=profile["CharacterImage"])
 
         embed.add_field(name="📋 기본 정보", value=f"• 아이템 Lv: `{item_lvl}`\n• 원정대 Lv: `{exp_exp}`\n• 전투 Lv: `Lv.{exp_lvl}`", inline=True)
         embed.add_field(name="🔥 핵심 스탯", value=f"• 공격력: `{attack_power}`\n• 특성비: `{stat_text}`", inline=True)
         embed.add_field(name="✨ 장비 세팅", value=f"• 무기: `{weapon_name}`\n• 방어구 세트: `{armor_set_name}`", inline=True)
 
-        embed.add_field(name=f"💠 {char_name} 아크 그리드 현황", value=f"```md\n" + "\n".join(grid_nodes) + "```", inline=False)
+        embed.add_field(name=f"💠 {char_name} 아크 그리드 현황", value="\n".join(grid_nodes), inline=False)
         embed.add_field(name="⚡ 아크 패시브 가동 스펙", value=f"```md\n[현재 분배 스펙]\n➜ {ark_passive_status}```", inline=False)
         embed.add_field(name="🔸 장착 각인 시스템", value=eng_text, inline=False)
 
@@ -283,8 +307,6 @@ async def recommend_narak_reward(ctx, level: str, floor: int, *rewards: str):
     
     for r in rewards:
         clean_r = r.replace(" ", "")
-        
-        # 80층 미만이면 귀속 보석 필터링
         if "보석" in clean_r and floor < 80:
             skipped.append(clean_r)
             continue
@@ -295,20 +317,16 @@ async def recommend_narak_reward(ctx, level: str, floor: int, *rewards: str):
                 found_val = val
                 break
         
-        if found_val > 0:
-            filtered_rewards.append({"name": clean_r, "val": found_val})
-        else:
-            skipped.append(clean_r)
+        if found_val > 0: filtered_rewards.append({"name": clean_r, "val": found_val})
+        else: skipped.append(clean_r)
 
     if not filtered_rewards:
         embed = discord.Embed(title="❌ 유효한 보상이 없습니다.", color=0xE74C3C)
-        if skipped:
-            embed.description = f"입력하신 보상(`{', '.join(skipped)}`)은 인식할 수 없거나, 조건(예: 보석은 80층 이상)에 맞지 않습니다."
+        if skipped: embed.description = f"입력하신 보상(`{', '.join(skipped)}`)은 조건(예: 보석은 80층 이상)에 맞지 않거나 오타입니다."
         await ctx.send(embed=embed)
         return
 
     filtered_rewards.sort(key=lambda x: x["val"], reverse=True)
-    
     embed = discord.Embed(title=f"🏆 [나락 보상] {level}Lv / {floor}층 효율 추천", color=0x9B59B6)
     embed.add_field(name="🥇 1등 보상 (가장 추천)", value=f"👉 **{filtered_rewards[0]['name']}**", inline=False)
     
@@ -319,10 +337,7 @@ async def recommend_narak_reward(ctx, level: str, floor: int, *rewards: str):
         rank_text += f"{medal} {i+1}위: {item['name']}\n"
         
     embed.add_field(name="📋 보상 선택 우선순위", value=rank_text, inline=False)
-    
-    if skipped:
-        embed.add_field(name="⚠️ 인식 실패 및 제외 항목", value=f"`{', '.join(skipped)}`\n*(보석은 80층 미만에서 제외됩니다.)*", inline=False)
-        
+    if skipped: embed.add_field(name="⚠️ 제외 항목", value=f"`{', '.join(skipped)}`\n*(보석은 80층 미만에서 제외됨)*", inline=False)
     await ctx.send(embed=embed)
 
 
@@ -355,7 +370,6 @@ async def recommend_hell_reward(ctx, level: str, floor_range: str, *rewards: str
         target_floor = 5
     
     floor_multiplier = 1.0 + (target_floor / 20.0)
-    
     analyzed_rewards = []
     unknown_rewards = []
 
@@ -372,13 +386,12 @@ async def recommend_hell_reward(ctx, level: str, floor_range: str, *rewards: str
             unknown_rewards.append(r_input)
 
     if not analyzed_rewards:
-        await ctx.send("❌ 인식된 보상이 없습니다. 단어 뒤에 오타가 없는지 확인해 주세요!")
+        await ctx.send("❌ 인식된 보상이 없습니다. 오타가 없는지 확인해 주세요!")
         return
 
     analyzed_rewards.sort(key=lambda x: x["calc_val"], reverse=True)
-
     embed = discord.Embed(title=f"🌋 [지옥 보상] {level}레벨 / {floor_range} 구간 실시간 판별", color=0x2ECC71)
-    embed.description = f"📊 현재 단계에서 시뮬레이션 효율이 가장 높은 순서입니다."
+    embed.description = f"📊 시뮬레이션 효율이 가장 높은 순서입니다."
     embed.add_field(name=f"🥇 지금 이 구간 최고의 [1등상]", value=f"👉 **{analyzed_rewards[0]['original']}**", inline=False)
 
     rank_text = ""
@@ -388,10 +401,7 @@ async def recommend_hell_reward(ctx, level: str, floor_range: str, *rewards: str
         rank_text += f"{medal} **{idx+1}위**: {item['original']}\n"
         
     embed.add_field(name="📋 보상 선택 우선순위", value=rank_text, inline=False)
-
-    if unknown_rewards:
-        embed.add_field(name="⚠️ 인식 실패 (오타 확인)", value=f"`{', '.join(unknown_rewards)}`", inline=False)
-
+    if unknown_rewards: embed.add_field(name="⚠️ 인식 실패 (오타 확인)", value=f"`{', '.join(unknown_rewards)}`", inline=False)
     embed.set_footer(text=f"기준: 층수 스케일링 ({int(target_floor)}층 가중치 적용)")
     await ctx.send(embed=embed)
 
@@ -406,7 +416,6 @@ async def calculate_auction(ctx, price: int = None):
         return
 
     net_value = int(price * 0.95)
-    
     calc_data = {
         "4인 파티 (군단장)": {"break_even": int(net_value * 3 / 4), "recommend": int(net_value * 0.95 * 3 / 4)},
         "8인 파티 (어비스 레이드)": {"break_even": int(net_value * 7 / 8), "recommend": int(net_value * 0.95 * 7 / 8)},
@@ -417,11 +426,7 @@ async def calculate_auction(ctx, price: int = None):
     embed.description = f"💡 **수수료 제외 가치:** {net_value:,} 골드\n*아래 추천가까지만 눌러야 이득입니다.*"
 
     for team, data in calc_data.items():
-        embed.add_field(
-            name=f"👥 {team}",
-            value=f"• **추천 입찰가:** `{data['recommend']:,} G` (이득 가능)\n• **손익 분기점:** `{data['break_even']:,} G` (여기 넘기면 손해)",
-            inline=False
-        )
+        embed.add_field(name=f"👥 {team}", value=f"• **추천 입찰가:** `{data['recommend']:,} G`\n• **손익 분기점:** `{data['break_even']:,} G`", inline=False)
     await ctx.send(embed=embed)
 
 
@@ -430,20 +435,14 @@ async def calculate_auction(ctx, price: int = None):
 # =========================
 @bot.command(name="지옥효율")
 async def show_hell_reward_efficiency(ctx):
-    embed = discord.Embed(
-        title="🌋 낙원 : 지옥 콘텐츠 구간별 보상 효율표", 
-        url="https://m.lopec.kr/tool/reward",
-        color=0xE74C3C,
-        description="💡 **Lopec(로펙) 도구 기준** 최신 재화 가치 산정 결과입니다.\n재화 시세에 따라 미세 변동이 있을 수 있으나 큐브 대비 효율성이 우세합니다."
-    )
-    embed.add_field(name="💎 1640 구간 (기대 가치: 약 14,500 G)", value="• 주요 드롭: 운명 파괴석/수호석, 카르마 돌파석, 젬 랜덤 상자\n• 효율 분석: **큐브보다 소폭 우세**", inline=False)
-    embed.add_field(name="💎 1700 구간 (기대 가치: 약 23,000 G)", value="• 주요 드롭: 상위 운명 재화 시리즈, 성장의 더스트, 실링 상자\n• 효율 분석: 🔥 **추천 파밍 구간**", inline=False)
-    embed.add_field(name="💎 1730 최상위 구간 (기대 가치: 최대 115,000 G 이상)", value="• 주요 드롭: 엔드게임 전용 파괴/수호석 결정, 최상위 돌파석, 젬 선택 상자\n• 효율 분석: 🌟 **원정대 스펙업 필수 교환 1순위**", inline=False)
-    
+    embed = discord.Embed(title="🌋 낙원 : 지옥 콘텐츠 구간별 보상 효율표", url="https://m.lopec.kr/tool/reward", color=0xE74C3C)
+    embed.description = "💡 **Lopec(로펙) 도구 기준** 최신 재화 가치 산정 결과입니다."
+    embed.add_field(name="💎 1640 구간 (기대 가치: 약 14,500 G)", value="• 주요 드롭: 운명 파괴/수호, 카르마 돌파석, 젬 상자\n• 효율 분석: **큐브보다 소폭 우세**", inline=False)
+    embed.add_field(name="💎 1700 구간 (기대 가치: 약 23,000 G)", value="• 주요 드롭: 상위 운명 재화 시리즈, 더스트, 실링\n• 효율 분석: 🔥 **추천 파밍 구간**", inline=False)
+    embed.add_field(name="💎 1730 최상위 구간 (기대 가치: 최대 115,000 G 이상)", value="• 주요 드롭: 엔드게임 전용 결정, 최상위 돌파석, 젬 선택\n• 효율 분석: 🌟 **원정대 스펙업 필수 1순위**", inline=False)
     embed.add_field(name="━━━━━━━━━━━━━━━━━━━━━━━━━━", value="🎲 **희귀(파란색) 열쇠 5회 제한 '억까' 확률 분석**", inline=False)
-    embed.add_field(name="📈 평균 기대 도달 층수", value="• 1회 강하당 1~20층 이동 (균등 확률 1/20)\n• 5회 강하 시 평균 기대값: **52.5층**", inline=True)
-    embed.add_field(name="🚨 5회 강하 후 '5층 마무리' 확률", value="• 5번 모두 연속으로 1층씩만 나올 확률\n• `(1/20)^5` = **0.00003125%** (로또보다 희박)", inline=True)
-    embed.set_footer(text="출처: Lopec(로펙) 리워드 효율 산정 툴 및 내부 통계 시뮬레이션")
+    embed.add_field(name="📈 평균 기대 도달 층수", value="• 1회 강하당 1~20층 이동 (균등 확률)\n• 5회 강하 시 기대값: **52.5층**", inline=True)
+    embed.add_field(name="🚨 5회 강하 후 '5층 마무리' 확률", value="• `(1/20)^5` = **0.00003125%** (로또보다 희박)", inline=True)
     await ctx.send(embed=embed)
 
 
@@ -453,15 +452,12 @@ async def show_hell_reward_efficiency(ctx):
 @bot.command(name="알람")
 async def set_timer(ctx, time_str: str = None, *, memo: str = "시간 완료!"):
     if not time_str:
-        await ctx.send("❌ 사용법: `!알람 [시간+단위] [멘션/메모]` (예: `!알람 10분`, `!알람 3분 @홍길동 얼른 복귀해라`)")
+        await ctx.send("❌ 사용법: `!알람 [시간+단위] [멘션/메모]` (예: `!알람 10분`)")
         return
 
     seconds = 0
-    if "분" in time_str:
-        minutes = int(time_str.replace("분", "").strip())
-        seconds = minutes * 60
-    elif "초" in time_str:
-        seconds = int(time_str.replace("초", "").strip())
+    if "분" in time_str: seconds = int(time_str.replace("분", "").strip()) * 60
+    elif "초" in time_str: seconds = int(time_str.replace("초", "").strip())
     else:
         try:
             seconds = int(time_str) * 60
@@ -470,9 +466,7 @@ async def set_timer(ctx, time_str: str = None, *, memo: str = "시간 완료!"):
             await ctx.send("❌ 시간을 올바르게 입력해주세요. (예: 10분, 30초)")
             return
 
-    if seconds <= 0:
-        await ctx.send("❌ 0보다 큰 시간을 입력해주세요.")
-        return
+    if seconds <= 0: return await ctx.send("❌ 0보다 큰 시간을 입력해주세요.")
 
     await ctx.send(f"⏰ {ctx.author.mention}님, **{time_str}** 알람이 예약되었습니다. (내용: {memo})")
     await asyncio.sleep(seconds)
@@ -486,14 +480,11 @@ async def set_timer(ctx, time_str: str = None, *, memo: str = "시간 완료!"):
 async def show_nakwon_code(ctx, job_name: str = None):
     if not job_name:
         available_jobs = ", ".join([f"`{k}`" for k in NAKWON_SKILL_CODES.keys()])
-        await ctx.send(f"❌ 사용법: `!낙원 [직업명]`\nℹ️ 등록된 직업: {available_jobs}")
-        return
-    matched_job = None
-    for key in NAKWON_SKILL_CODES.keys():
-        if job_name in key: matched_job = key; break
-    if not matched_job:
-        await ctx.send(f"❌ `{job_name}` 직업의 낙원 증명용 스킬코드를 찾을 수 없습니다.")
-        return
+        return await ctx.send(f"❌ 사용법: `!낙원 [직업명]`\nℹ️ 등록된 직업: {available_jobs}")
+    
+    matched_job = next((key for key in NAKWON_SKILL_CODES.keys() if job_name in key), None)
+    if not matched_job: return await ctx.send(f"❌ `{job_name}` 직업의 낙원 코드를 찾을 수 없습니다.")
+    
     job_data = NAKWON_SKILL_CODES[matched_job]
     embed = discord.Embed(title=f"🌊 낙원 증명용 {matched_job} 아크 패시브", color=0x00A3FF)
     embed.add_field(name="📋 복사용 스킬코드", value=f"```{job_data['code']}```", inline=False)
@@ -506,26 +497,21 @@ async def show_synergy(ctx):
     jobs = list(SYNERGY_DETAILS.keys())
     chunks = [jobs[i:i + 6] for i in range(0, len(jobs), 6)]
     for i, chunk in enumerate(chunks):
-        chunk_text = ""
-        for job in chunk: 
-            chunk_text += f"• **{job}**: {SYNERGY_DETAILS[job]['desc']}\n"
+        chunk_text = "".join([f"• **{job}**: {SYNERGY_DETAILS[job]['desc']}\n" for job in chunk])
         embed.add_field(name=f"시너지 목록 ({i+1})", value=chunk_text, inline=False)
     await ctx.send(embed=embed)
 
 @bot.command(name="레이드조합")
 async def analyze_raid_party(ctx, *jobs: str):
-    if len(jobs) < 1 or len(jobs) > 4:
-        await ctx.send("❌ 사용법: `!레이드조합 [직업1] [직업2] [직업3] [직업4]`")
-        return
+    if len(jobs) < 1 or len(jobs) > 4: return await ctx.send("❌ 사용법: `!레이드조합 [직업1] [직업2] ...`")
+    
     matched_jobs, invalid_jobs = [], []
     for job in jobs:
         found = False
         for key in SYNERGY_DETAILS.keys():
             if job in key: matched_jobs.append(key); found = True; break
         if not found: invalid_jobs.append(job)
-    if invalid_jobs:
-        await ctx.send(f"❌ 알 수 없는 직업이 포함되어 있습니다: {', '.join([f'`{j}`' for j in invalid_jobs])}")
-        return
+    if invalid_jobs: return await ctx.send(f"❌ 알 수 없는 직업 포함: {', '.join([f'`{j}`' for j in invalid_jobs])}")
     
     effect_counts = {}
     has_supp = has_backhead = False
@@ -550,8 +536,7 @@ async def analyze_raid_party(ctx, *jobs: str):
     evaluation = "🌟 **최상 (시너지 도둑 조합)**" if score >= 85 else "✅ **양호 (무난한 조합)**" if score >= 65 else "🔺 **조정 필요 (시너지 불협화음)**"
     embed.add_field(name="📊 조합 시너지 점수", value=f"**{score}점**\n{evaluation}", inline=False)
     
-    if has_backhead:
-        embed.add_field(name="📐 특수 조합 코멘트", value="💡 파티에 **사멸(백/헤드) 시너지**가 포함되어 있으므로, 사멸 딜러 배치 시 시너지 효율이 극대화됩니다.", inline=False)
+    if has_backhead: embed.add_field(name="📐 특수 조합 코멘트", value="💡 파티에 **사멸(백/헤드) 시너지**가 포함되어 있으므로, 사멸 딜러 배치 시 효율 극대화.", inline=False)
     await ctx.send(embed=embed)
 
 
@@ -570,43 +555,23 @@ class RaidJoinView(discord.ui.View):
         
     def generate_embed(self):
         embed = discord.Embed(title=f"⚔️ {self.title}", color=0x2B2D31)
-        dps_text = []
-        for i in range(self.max_dps):
-            if i < len(self.dps_list):
-                u, role = self.dps_list[i]
-                dps_text.append(f"• {u.mention} ➜ `{role}`")
-            else:
-                dps_text.append("• == 빈 자리 ==")
-                
-        supp_text = []
-        for i in range(self.max_supp):
-            if i < len(self.supp_list):
-                u, role = self.supp_list[i]
-                supp_text.append(f"• {u.mention} ➜ `{role}`")
-            else:
-                supp_text.append("• == 빈 자리 ==")
-                
+        dps_text = [f"• {u.mention} ➜ `{role}`" if i < len(self.dps_list) else "• == 빈 자리 ==" for i, (u, role) in enumerate(self.dps_list + [(None, None)]*self.max_dps)[:self.max_dps]]
+        supp_text = [f"• {u.mention} ➜ `{role}`" if i < len(self.supp_list) else "• == 빈 자리 ==" for i, (u, role) in enumerate(self.supp_list + [(None, None)]*self.max_supp)[:self.max_supp]]
         embed.add_field(name=f"딜러 ({len(self.dps_list)}/{self.max_dps})", value="\n".join(dps_text), inline=False)
         embed.add_field(name=f"서포터 ({len(self.supp_list)}/{self.max_supp})", value="\n".join(supp_text), inline=False)
         return embed
 
     @discord.ui.button(label="딜러 참가", style=discord.ButtonStyle.primary, custom_id="join_dps")
     async def join_dps(self, interaction: discord.Interaction, button: discord.ui.Button):
-        for u, _ in self.dps_list + self.supp_list:
-            if u.id == interaction.user.id:
-                return await interaction.response.send_message("❌ 이미 파티에 참가 중입니다.", ephemeral=True)
-        if len(self.dps_list) >= self.max_dps: 
-            return await interaction.response.send_message("❌ 딜러 자리가 꽉 찼습니다.", ephemeral=True)
+        if any(u.id == interaction.user.id for u, _ in self.dps_list + self.supp_list): return await interaction.response.send_message("❌ 이미 파티에 참가 중입니다.", ephemeral=True)
+        if len(self.dps_list) >= self.max_dps: return await interaction.response.send_message("❌ 딜러 자리가 꽉 찼습니다.", ephemeral=True)
         self.dps_list.append((interaction.user, "참가자"))
         await interaction.response.edit_message(embed=self.generate_embed(), view=self)
 
     @discord.ui.button(label="서폿 참가", style=discord.ButtonStyle.success, custom_id="join_supp")
     async def join_supp(self, interaction: discord.Interaction, button: discord.ui.Button):
-        for u, _ in self.dps_list + self.supp_list:
-            if u.id == interaction.user.id:
-                return await interaction.response.send_message("❌ 이미 파티에 참가 중입니다.", ephemeral=True)
-        if len(self.supp_list) >= self.max_supp: 
-            return await interaction.response.send_message("❌ 서폿 자리가 꽉 찼습니다.", ephemeral=True)
+        if any(u.id == interaction.user.id for u, _ in self.dps_list + self.supp_list): return await interaction.response.send_message("❌ 이미 파티에 참가 중입니다.", ephemeral=True)
+        if len(self.supp_list) >= self.max_supp: return await interaction.response.send_message("❌ 서폿 자리가 꽉 찼습니다.", ephemeral=True)
         self.supp_list.append((interaction.user, "참가자"))
         await interaction.response.edit_message(embed=self.generate_embed(), view=self)
 
@@ -618,11 +583,8 @@ class RaidJoinView(discord.ui.View):
 
 @bot.command(name="레이드모집")
 async def create_raid_party(ctx, size: int = None, *, title: str = "공격대 모집"):
-    if size not in [4, 8]:
-        await ctx.send("❌ 사용법: `!레이드모집 [4 또는 8] [레이드 제목]`\n(예시: `!레이드모집 4 쿠크세이튼`)")
-        return
-    if size == 4: view = RaidJoinView(title, ctx.author, max_dps=3, max_supp=1)
-    elif size == 8: view = RaidJoinView(title, ctx.author, max_dps=6, max_supp=2)
+    if size not in [4, 8]: return await ctx.send("❌ 사용법: `!레이드모집 [4 또는 8] [레이드 제목]`")
+    view = RaidJoinView(title, ctx.author, max_dps=3, max_supp=1) if size == 4 else RaidJoinView(title, ctx.author, max_dps=6, max_supp=2)
     await ctx.send(embed=view.generate_embed(), view=view)
 
 
@@ -635,22 +597,18 @@ class CubeCalculatorModal(discord.ui.Modal, title="🎲 캐릭터별 큐브 매�
 
     def parse_tickets_by_char(self, text):
         data = {4: {}, 3: {}, 2: {}, 1: {}}
-        lines = text.strip().split('\n')
-        for line in lines:
+        for line in text.strip().split('\n'):
             if not line.strip(): continue
             match = re.search(r'([1-4])[^\d]*(\d+)', line)
             if match:
-                stage = int(match.group(1))
-                count = int(match.group(2))
-                char_name = line.split(match.group(0))[0].strip()
-                if not char_name: char_name = f"캐릭_{stage}"
+                stage, count = int(match.group(1)), int(match.group(2))
+                char_name = line.split(match.group(0))[0].strip() or f"캐릭_{stage}"
                 data[stage][char_name] = data[stage].get(char_name, 0) + count
         return data
 
     async def on_submit(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=False)
-        me = self.parse_tickets_by_char(self.my_tickets.value)
-        partner = self.parse_tickets_by_char(self.partner_tickets.value)
+        me, partner = self.parse_tickets_by_char(self.my_tickets.value), self.parse_tickets_by_char(self.partner_tickets.value)
         embed = discord.Embed(title="📊 캐릭터별 최적 큐브 동선 설계", color=0x00FFFF)
         has_data = False
         for stage in [4, 3, 2, 1]:
@@ -666,10 +624,9 @@ class CubeCalculatorModal(discord.ui.Modal, title="🎲 캐릭터별 큐브 매�
                         pan = min(my_chars[m_char] // 3, partner_chars[p_char] // 3)
                         if pan > 0:
                             stage_text += f"➔ 나의 **[{m_char}]** ⚔️ 상대 **[{p_char}]** ➜ **3배로 {pan}판**\n"
-                            my_chars[m_char] -= pan * 3
-                            partner_chars[p_char] -= pan * 3
-                            triple_found = True
+                            my_chars[m_char] -= pan * 3; partner_chars[p_char] -= pan * 3; triple_found = True
             if not triple_found: stage_text += "➔ 3배 조합이 없습니다.\n"
+            
             stage_text += "\n**🔸 [1배 소모 및 잔여 믹스]**\n"
             single_found = False
             my_remains = {k: v for k, v in my_chars.items() if v > 0}
@@ -679,14 +636,11 @@ class CubeCalculatorModal(discord.ui.Modal, title="🎲 캐릭터별 큐브 매�
                     if my_remains[m_char] > 0 and partner_remains[p_char] > 0:
                         pan = min(my_remains[m_char], partner_remains[p_char])
                         stage_text += f"➔ 나의 **[{m_char}]** ({my_remains[m_char]}장) ⚔️ 상대 **[{p_char}]** ({partner_remains[p_char]}장) ➜ **1배로 {pan}판**\n"
-                        my_remains[m_char] -= pan
-                        partner_remains[p_char] -= pan
-                        single_found = True
+                        my_remains[m_char] -= pan; partner_remains[p_char] -= pan; single_found = True
             if not single_found and triple_found: stage_text += "➔ 깔끔하게 정산되었습니다!\n"
             embed.add_field(name=f"▶️ {stage}해금 큐브 가이드", value=stage_text + "─", inline=False)
-        if not has_data:
-            await interaction.followup.send("❌ 티켓 데이터를 파싱하지 못했습니다.")
-            return
+        
+        if not has_data: return await interaction.followup.send("❌ 티켓 데이터를 파싱하지 못했습니다.")
         await interaction.followup.send(embed=embed)
 
 class CubeView(discord.ui.View):
@@ -706,9 +660,7 @@ class VerifyModal(discord.ui.Modal, title="로스트아크 인증"):
         await interaction.response.defer(ephemeral=True)
         profile = call_lostark_api("profiles", self.character_name.value)
         
-        if not profile:
-            await interaction.followup.send("❌ 캐릭터 정보를 찾을 수 없습니다.", ephemeral=True)
-            return
+        if not profile: return await interaction.followup.send("❌ 캐릭터 정보를 찾을 수 없습니다.", ephemeral=True)
         
         guild = interaction.guild
         member = guild.get_member(interaction.user.id)
@@ -725,11 +677,9 @@ class VerifyModal(discord.ui.Modal, title="로스트아크 인증"):
         config_guild = os.getenv("GUILD_NAME", "")
         
         if config_guild and char_guild.strip() == config_guild.strip():
-            member_role = os.getenv("MEMBER_ROLE", "길드원")
-            if member_role: roles_to_add.append(member_role)
+            if member_role := os.getenv("MEMBER_ROLE", "길드원"): roles_to_add.append(member_role)
         else:
-            guest_role = os.getenv("GUEST_ROLE", "외부인")
-            roles_to_add.append(guest_role)
+            roles_to_add.append(os.getenv("GUEST_ROLE", "외부인"))
             
         for r_name in roles_to_add:
             role = discord.utils.get(guild.roles, name=r_name)
@@ -759,8 +709,7 @@ async def on_ready():
 @bot.event
 async def on_member_join(member):
     channel = discord.utils.get(member.guild.text_channels, name="인증")
-    if channel:
-        await channel.send(f"👋 {member.mention}님 환영합니다! `!인증패널`에 있는 버튼을 눌러 역할을 부여받으세요.")
+    if channel: await channel.send(f"👋 {member.mention}님 환영합니다! `!인증패널`에 있는 버튼을 눌러 역할을 부여받으세요.")
 
 @bot.event
 async def on_message(message):
