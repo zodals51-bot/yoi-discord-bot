@@ -498,31 +498,41 @@ class RaidJoinView(discord.ui.View):
     def __init__(self, title, creator, max_dps, max_supp):
         super().__init__(timeout=None)
         self.title = title
-        self.creator = creator
-        self.max_dps = max_dps
-        self.max_supp = max_supp
         self.dps_list = [(creator, "공격대장 👑")]
         self.supp_list = []
+        self.max_dps = max_dps
+        self.max_supp = max_supp
         
     def generate_embed(self):
         embed = discord.Embed(title=f"⚔️ {self.title}", color=0x2B2D31)
-        dps_text = [f"• {u.mention} ➜ `{role}`" if i < len(self.dps_list) else "• == 빈 자리 ==" for i, (u, role) in enumerate(self.dps_list + [(None, None)]*self.max_dps)[:self.max_dps]]
-        supp_text = [f"• {u.mention} ➜ `{role}`" if i < len(self.supp_list) else "• == 빈 자리 ==" for i, (u, role) in enumerate(self.supp_list + [(None, None)]*self.max_supp)[:self.max_supp]]
+        
+        dps_text = []
+        dps_list_padded = self.dps_list + [(None, None)] * self.max_dps
+        for i in range(self.max_dps):
+            u, role = dps_list_padded[i]
+            dps_text.append(f"• {u.mention} ➜ `{role}`" if u else "• == 빈 자리 ==")
+            
+        supp_text = []
+        supp_list_padded = self.supp_list + [(None, None)] * self.max_supp
+        for i in range(self.max_supp):
+            u, role = supp_list_padded[i]
+            supp_text.append(f"• {u.mention} ➜ `{role}`" if u else "• == 빈 자리 ==")
+                
         embed.add_field(name=f"딜러 ({len(self.dps_list)}/{self.max_dps})", value="\n".join(dps_text), inline=False)
         embed.add_field(name=f"서포터 ({len(self.supp_list)}/{self.max_supp})", value="\n".join(supp_text), inline=False)
         return embed
 
     @discord.ui.button(label="딜러 참가", style=discord.ButtonStyle.primary, custom_id="join_dps")
     async def join_dps(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if any(u.id == interaction.user.id for u, _ in self.dps_list + self.supp_list): return await interaction.response.send_message("❌ 이미 파티에 참가 중입니다.", ephemeral=True)
-        if len(self.dps_list) >= self.max_dps: return await interaction.response.send_message("❌ 딜러 자리가 꽉 찼습니다.", ephemeral=True)
+        if any(u.id == interaction.user.id for u, _ in self.dps_list + self.supp_list): return await interaction.response.send_message("❌ 이미 참가 중입니다.", ephemeral=True)
+        if len(self.dps_list) >= self.max_dps: return await interaction.response.send_message("❌ 딜러 만석", ephemeral=True)
         self.dps_list.append((interaction.user, "참가자"))
         await interaction.response.edit_message(embed=self.generate_embed(), view=self)
 
     @discord.ui.button(label="서폿 참가", style=discord.ButtonStyle.success, custom_id="join_supp")
     async def join_supp(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if any(u.id == interaction.user.id for u, _ in self.dps_list + self.supp_list): return await interaction.response.send_message("❌ 이미 파티에 참가 중입니다.", ephemeral=True)
-        if len(self.supp_list) >= self.max_supp: return await interaction.response.send_message("❌ 서폿 자리가 꽉 찼습니다.", ephemeral=True)
+        if any(u.id == interaction.user.id for u, _ in self.dps_list + self.supp_list): return await interaction.response.send_message("❌ 이미 참가 중입니다.", ephemeral=True)
+        if len(self.supp_list) >= self.max_supp: return await interaction.response.send_message("❌ 서폿 만석", ephemeral=True)
         self.supp_list.append((interaction.user, "참가자"))
         await interaction.response.edit_message(embed=self.generate_embed(), view=self)
 
@@ -534,11 +544,10 @@ class RaidJoinView(discord.ui.View):
 
 @bot.command(name="레이드모집")
 async def create_raid_party(ctx, size: int = None, *, title: str = "공격대 모집"):
-    if size not in [4, 8]: return await ctx.send("❌ 사용법: `!레이드모집 [4 또는 8] [레이드 제목]`")
-    view = RaidJoinView(title, ctx.author, max_dps=3, max_supp=1) if size == 4 else RaidJoinView(title, ctx.author, max_dps=6, max_supp=2)
+    if size not in [4, 8]: return await ctx.send("❌ 사용법: `!레이드모집 [4/8] [제목]`")
+    view = RaidJoinView(title, ctx.author, 3, 1) if size == 4 else RaidJoinView(title, ctx.author, 6, 2)
     await ctx.send(embed=view.generate_embed(), view=view)
-
-
+    
 # =========================
 # 🎲 큐브 매칭 정산 시스템 (!큐브계산기)
 # =========================
