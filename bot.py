@@ -133,7 +133,7 @@ NARAK_DATA = {
 @bot.command(name="정보")
 async def character_spec_search(ctx, character_name: str = None):
     if not character_name:
-        await ctx.send("❌ 사용법: `!정보 [캐릭터이름]`")
+        await ctx.send("❌ 사용법: `!정보 [캐릭터이름]`", delete_after=10)
         return
         
     status_msg = await ctx.send(f"🔍 **{character_name}** 님의 데이터를 추적 중입니다...")
@@ -141,7 +141,7 @@ async def character_spec_search(ctx, character_name: str = None):
     try:
         profile = call_lostark_api("profiles", character_name)
         if not profile:
-            await status_msg.edit(content=f"❌ **{character_name}** 님의 정보를 찾을 수 없습니다.")
+            await status_msg.edit(content=f"❌ **{character_name}** 님의 정보를 찾을 수 없습니다.", delete_after=10)
             return
             
         engravings_data = call_lostark_api("engravings", character_name) or {}
@@ -229,15 +229,14 @@ async def character_spec_search(ctx, character_name: str = None):
         embed.add_field(name="🔥 핵심 스탯", value=f"• 공격력: `{attack_power}`\n• 특성비: `{stat_text}`", inline=True)
         embed.add_field(name="✨ 장비 세팅", value=f"• 무기: `{weapon_name}`\n• 방어구 세트: `{armor_set_name}`", inline=True)
 
-        # 아크 그리드 칸 제거됨
         embed.add_field(name="⚡ 아크 패시브 가동 스펙", value=f"```md\n[현재 분배 스펙]\n➜ {ark_passive_status}```", inline=False)
         embed.add_field(name="🔸 장착 각인 시스템", value=eng_text, inline=False)
 
         await status_msg.delete()
-        await ctx.send(embed=embed)
+        await ctx.send(embed=embed, delete_after=900)
         
     except Exception as e:
-        await status_msg.edit(content=f"❌ 데이터 처리 중 오류가 발생했습니다.\n디버그 코드: `{e}`")
+        await status_msg.edit(content=f"❌ 데이터 처리 중 오류가 발생했습니다.\n디버그 코드: `{e}`", delete_after=10)
 
 
 # =========================
@@ -246,11 +245,11 @@ async def character_spec_search(ctx, character_name: str = None):
 @bot.command(name="나락추천")
 async def recommend_narak_reward(ctx, level: str, floor: int, *rewards: str):
     if level not in NARAK_DATA:
-        await ctx.send("❌ 지원하지 않는 레벨입니다. (1640, 1700, 1730, 1750 중 선택)")
+        await ctx.send("❌ 지원하지 않는 레벨입니다. (1640, 1700, 1730, 1750 중 선택)", delete_after=10)
         return
     
     if len(rewards) < 1:
-        await ctx.send("❌ **사용법:** `!나락추천 [레벨] [층수] [보상1] [보상2] ...`\nℹ️ 예시: `!나락추천 1750 85 어빌 특재 골드 보석`")
+        await ctx.send("❌ **사용법:** `!나락추천 [레벨] [층수] [보상1] [보상2] ...`\nℹ️ 예시: `!나락추천 1750 85 어빌 특재 골드 보석`", delete_after=10)
         return
     
     filtered_rewards = []
@@ -274,7 +273,7 @@ async def recommend_narak_reward(ctx, level: str, floor: int, *rewards: str):
     if not filtered_rewards:
         embed = discord.Embed(title="❌ 유효한 보상이 없습니다.", color=0xE74C3C)
         if skipped: embed.description = f"입력하신 보상(`{', '.join(skipped)}`)은 조건(예: 보석은 80층 이상)에 맞지 않거나 오타입니다."
-        await ctx.send(embed=embed)
+        await ctx.send(embed=embed, delete_after=10)
         return
 
     filtered_rewards.sort(key=lambda x: x["val"], reverse=True)
@@ -289,7 +288,7 @@ async def recommend_narak_reward(ctx, level: str, floor: int, *rewards: str):
         
     embed.add_field(name="📋 보상 선택 우선순위", value=rank_text, inline=False)
     if skipped: embed.add_field(name="⚠️ 제외 항목", value=f"`{', '.join(skipped)}`\n*(보석은 80층 미만에서 제외됨)*", inline=False)
-    await ctx.send(embed=embed)
+    await ctx.send(embed=embed, delete_after=900)
 
 
 # =========================
@@ -298,7 +297,7 @@ async def recommend_narak_reward(ctx, level: str, floor: int, *rewards: str):
 @bot.command(name="지옥추천")
 async def recommend_hell_reward(ctx, level: str, floor_range: str, *rewards: str):
     if not level or not floor_range or len(rewards) < 2:
-        await ctx.send("❌ **사용법:** `!지옥추천 [레벨] [층수구간] [보상1] [보상2] ...`\nℹ️ 예시: `!지옥추천 1750 0~10 어빌 특재 골드`")
+        await ctx.send("❌ **사용법:** `!지옥추천 [레벨] [층수구간] [보상1] [보상2] ...`\nℹ️ 예시: `!지옥추천 1750 0~10 어빌 특재 골드`", delete_after=10)
         return
 
     level_multiplier = 1.0
@@ -337,7 +336,7 @@ async def recommend_hell_reward(ctx, level: str, floor_range: str, *rewards: str
             unknown_rewards.append(r_input)
 
     if not analyzed_rewards:
-        await ctx.send("❌ 인식된 보상이 없습니다. 오타가 없는지 확인해 주세요!")
+        await ctx.send("❌ 인식된 보상이 없습니다. 오타가 없는지 확인해 주세요!", delete_after=10)
         return
 
     analyzed_rewards.sort(key=lambda x: x["calc_val"], reverse=True)
@@ -354,7 +353,7 @@ async def recommend_hell_reward(ctx, level: str, floor_range: str, *rewards: str
     embed.add_field(name="📋 보상 선택 우선순위", value=rank_text, inline=False)
     if unknown_rewards: embed.add_field(name="⚠️ 인식 실패 (오타 확인)", value=f"`{', '.join(unknown_rewards)}`", inline=False)
     embed.set_footer(text=f"기준: 층수 스케일링 ({int(target_floor)}층 가중치 적용)")
-    await ctx.send(embed=embed)
+    await ctx.send(embed=embed, delete_after=900)
 
 
 # =========================
@@ -363,7 +362,7 @@ async def recommend_hell_reward(ctx, level: str, floor_range: str, *rewards: str
 @bot.command(name="경매")
 async def calculate_auction(ctx, price: int = None):
     if not price or price <= 0:
-        await ctx.send("❌ 사용법: `!경매 [경매장 시세]` (예: `!경매 10000`)")
+        await ctx.send("❌ 사용법: `!경매 [경매장 시세]` (예: `!경매 10000`)", delete_after=10)
         return
 
     net_value = int(price * 0.95)
@@ -378,7 +377,7 @@ async def calculate_auction(ctx, price: int = None):
 
     for team, data in calc_data.items():
         embed.add_field(name=f"👥 {team}", value=f"• **추천 입찰가:** `{data['recommend']:,} G`\n• **손익 분기점:** `{data['break_even']:,} G`", inline=False)
-    await ctx.send(embed=embed)
+    await ctx.send(embed=embed, delete_after=900)
 
 
 # =========================
@@ -394,7 +393,7 @@ async def show_hell_reward_efficiency(ctx):
     embed.add_field(name="━━━━━━━━━━━━━━━━━━━━━━━━━━", value="🎲 **희귀(파란색) 열쇠 5회 제한 '억까' 확률 분석**", inline=False)
     embed.add_field(name="📈 평균 기대 도달 층수", value="• 1회 강하당 1~20층 이동 (균등 확률)\n• 5회 강하 시 기대값: **52.5층**", inline=True)
     embed.add_field(name="🚨 5회 강하 후 '5층 마무리' 확률", value="• `(1/20)^5` = **0.00003125%** (로또보다 희박)", inline=True)
-    await ctx.send(embed=embed)
+    await ctx.send(embed=embed, delete_after=900)
 
 
 # =========================
@@ -403,7 +402,7 @@ async def show_hell_reward_efficiency(ctx):
 @bot.command(name="알람")
 async def set_timer(ctx, time_str: str = None, *, memo: str = "시간 완료!"):
     if not time_str:
-        await ctx.send("❌ 사용법: `!알람 [시간+단위] [멘션/메모]` (예: `!알람 10분`)")
+        await ctx.send("❌ 사용법: `!알람 [시간+단위] [멘션/메모]` (예: `!알람 10분`)", delete_after=10)
         return
 
     seconds = 0
@@ -414,14 +413,14 @@ async def set_timer(ctx, time_str: str = None, *, memo: str = "시간 완료!"):
             seconds = int(time_str) * 60
             time_str = f"{time_str}분"
         except ValueError:
-            await ctx.send("❌ 시간을 올바르게 입력해주세요. (예: 10분, 30초)")
+            await ctx.send("❌ 시간을 올바르게 입력해주세요. (예: 10분, 30초)", delete_after=10)
             return
 
-    if seconds <= 0: return await ctx.send("❌ 0보다 큰 시간을 입력해주세요.")
+    if seconds <= 0: return await ctx.send("❌ 0보다 큰 시간을 입력해주세요.", delete_after=10)
 
-    await ctx.send(f"⏰ {ctx.author.mention}님, **{time_str}** 알람이 예약되었습니다. (내용: {memo})")
+    await ctx.send(f"⏰ {ctx.author.mention}님, **{time_str}** 알람이 예약되었습니다. (내용: {memo})", delete_after=900)
     await asyncio.sleep(seconds)
-    await ctx.send(f"🚨 **[{time_str} 완료]** ➜ {memo}")
+    await ctx.send(f"🚨 **[{time_str} 완료]** ➜ {memo}", delete_after=900)
 
 
 # =========================
@@ -431,16 +430,16 @@ async def set_timer(ctx, time_str: str = None, *, memo: str = "시간 완료!"):
 async def show_nakwon_code(ctx, job_name: str = None):
     if not job_name:
         available_jobs = ", ".join([f"`{k}`" for k in NAKWON_SKILL_CODES.keys()])
-        return await ctx.send(f"❌ 사용법: `!낙원 [직업명]`\nℹ️ 등록된 직업: {available_jobs}")
+        return await ctx.send(f"❌ 사용법: `!낙원 [직업명]`\nℹ️ 등록된 직업: {available_jobs}", delete_after=10)
     
     matched_job = next((key for key in NAKWON_SKILL_CODES.keys() if job_name in key), None)
-    if not matched_job: return await ctx.send(f"❌ `{job_name}` 직업의 낙원 코드를 찾을 수 없습니다.")
+    if not matched_job: return await ctx.send(f"❌ `{job_name}` 직업의 낙원 코드를 찾을 수 없습니다.", delete_after=10)
     
     job_data = NAKWON_SKILL_CODES[matched_job]
     embed = discord.Embed(title=f"🌊 낙원 증명용 {matched_job} 아크 패시브", color=0x00A3FF)
     embed.add_field(name="📋 복사용 스킬코드", value=f"```{job_data['code']}```", inline=False)
     embed.add_field(name="💡 운용 팁 / 공략", value=f"{job_data['tip']}", inline=False)
-    await ctx.send(embed=embed)
+    await ctx.send(embed=embed, delete_after=900)
 
 @bot.command(name="시너지")
 async def show_synergy(ctx):
@@ -450,11 +449,11 @@ async def show_synergy(ctx):
     for i, chunk in enumerate(chunks):
         chunk_text = "".join([f"• **{job}**: {SYNERGY_DETAILS[job]['desc']}\n" for job in chunk])
         embed.add_field(name=f"시너지 목록 ({i+1})", value=chunk_text, inline=False)
-    await ctx.send(embed=embed)
+    await ctx.send(embed=embed, delete_after=900)
 
 @bot.command(name="레이드조합")
 async def analyze_raid_party(ctx, *jobs: str):
-    if len(jobs) < 1 or len(jobs) > 4: return await ctx.send("❌ 사용법: `!레이드조합 [직업1] [직업2] ...`")
+    if len(jobs) < 1 or len(jobs) > 4: return await ctx.send("❌ 사용법: `!레이드조합 [직업1] [직업2] ...`", delete_after=10)
     
     matched_jobs, invalid_jobs = [], []
     for job in jobs:
@@ -462,7 +461,7 @@ async def analyze_raid_party(ctx, *jobs: str):
         for key in SYNERGY_DETAILS.keys():
             if job in key: matched_jobs.append(key); found = True; break
         if not found: invalid_jobs.append(job)
-    if invalid_jobs: return await ctx.send(f"❌ 알 수 없는 직업 포함: {', '.join([f'`{j}`' for j in invalid_jobs])}")
+    if invalid_jobs: return await ctx.send(f"❌ 알 수 없는 직업 포함: {', '.join([f'`{j}`' for j in invalid_jobs])}", delete_after=10)
     
     effect_counts = {}
     has_supp = has_backhead = False
@@ -488,7 +487,7 @@ async def analyze_raid_party(ctx, *jobs: str):
     embed.add_field(name="📊 조합 시너지 점수", value=f"**{score}점**\n{evaluation}", inline=False)
     
     if has_backhead: embed.add_field(name="📐 특수 조합 코멘트", value="💡 파티에 **사멸(백/헤드) 시너지**가 포함되어 있으므로, 사멸 딜러 배치 시 효율 극대화.", inline=False)
-    await ctx.send(embed=embed)
+    await ctx.send(embed=embed, delete_after=900)
 
 
 # =========================
@@ -544,9 +543,9 @@ class RaidJoinView(discord.ui.View):
 
 @bot.command(name="레이드모집")
 async def create_raid_party(ctx, size: int = None, *, title: str = "공격대 모집"):
-    if size not in [4, 8]: return await ctx.send("❌ 사용법: `!레이드모집 [4/8] [제목]`")
+    if size not in [4, 8]: return await ctx.send("❌ 사용법: `!레이드모집 [4/8] [제목]`", delete_after=10)
     view = RaidJoinView(title, ctx.author, 3, 1) if size == 4 else RaidJoinView(title, ctx.author, 6, 2)
-    await ctx.send(embed=view.generate_embed(), view=view)
+    await ctx.send(embed=view.generate_embed(), view=view, delete_after=900)
     
 # =========================
 # 🎲 큐브 매칭 정산 시스템 (!큐브계산기)
@@ -601,6 +600,8 @@ class CubeCalculatorModal(discord.ui.Modal, title="🎲 캐릭터별 큐브 매�
             embed.add_field(name=f"▶️ {stage}해금 큐브 가이드", value=stage_text + "─", inline=False)
         
         if not has_data: return await interaction.followup.send("❌ 티켓 데이터를 파싱하지 못했습니다.")
+        # 큐브 계산 결과 모달 응답도 15분 삭제하려면 아래처럼 설정할 수 있습니다. 
+        # (followup send는 delete_after를 직접 넣을 수 없어서 놔두거나 별도 처리해야 하지만 기본 출력으로 처리됩니다.)
         await interaction.followup.send(embed=embed)
 
 class CubeView(discord.ui.View):
@@ -678,10 +679,12 @@ async def on_message(message):
 
 @bot.command()
 async def 인증패널(ctx): 
-    await ctx.send(embed=discord.Embed(title="로스트아크 길드 인증", color=0x2B2D31), view=VerifyView())
+    # 주의: 인증 패널이 사라지면 버튼도 사라지므로, 고정 채널에 띄울 땐 delete_after를 제거하는 것이 좋습니다.
+    await ctx.send(embed=discord.Embed(title="로스트아크 길드 인증", color=0x2B2D31), view=VerifyView(), delete_after=900)
 
 @bot.command()
 async def 큐브계산기(ctx): 
-    await ctx.send(embed=discord.Embed(title="🎲 큐브 매칭", color=0x2B2D31), view=CubeView())
+    # 주의: 큐브 패널도 버튼이 포함되어 있으므로 15분 뒤 삭제됩니다.
+    await ctx.send(embed=discord.Embed(title="🎲 큐브 매칭", color=0x2B2D31), view=CubeView(), delete_after=900)
 
 bot.run(DISCORD_TOKEN)
