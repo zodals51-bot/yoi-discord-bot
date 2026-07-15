@@ -197,7 +197,7 @@ async def character_spec_search(ctx, character_name: str = None):
             elif i_type in ["투구", "상의", "하의", "장갑", "어깨"] and armor_set_name == "장비 정보 없음":
                 armor_set_name = re.sub(r'투구|상의|하의|장갑|어깨', '', clean_name).strip()
 
-        # 5. 각인 필터링 (빨간 네모 싹 없애고 깔끔하게)
+        # 5. 각인 필터링
         eng_text = ""
         seen_engs = set()
 
@@ -659,46 +659,17 @@ class VerifyView(discord.ui.View):
 # =========================
 # 🎨 로아 스티커 (자동 이미지 반응) 기능
 # =========================
+# 💡 괄호 [] 안의 명령어를 디스코드에서 쓰기 편한 실용 단어로 직접 수정하시면 편합니다!
 STICKER_MAP = {
-    "[06_32]": "https://cdn.discordapp.com/attachments/1526672551219036263/1526675022771523726/06__32_.png?ex=6a57e269&is=6a5690e9&hm=1159606a7cd556763d8d1b3725d7a0bbced162f0e078bced5fc759b0956f04df&",
-    "[06_21]": "https://cdn.discordapp.com/attachments/1526672551219036263/1526675007839932596/06__21_.png?ex=6a57e266&is=6a5690e6&hm=5475ef40e22cdfd8d56031e548c175c9fef5a8952409e03018b37730edc170f3&",
-    "[06_16]": "https://cdn.discordapp.com/attachments/1526672551219036263/1526674992748695693/06__16_.png?ex=6a57e262&is=6a5690e2&hm=aa592f7dedd7940276c84d570f6f25f06d22c1dfdb7d48954ea3c11eba1523fb&",
-    "[06_05]": "https://cdn.discordapp.com/attachments/1526672551219036263/1526674975862296648/06__05_.png?ex=6a57e25e&is=6a5690de&hm=08c9c80521f0394ce70e40d29b7aab5d749a74b420fa88462e4c3f89e33d0591&",
-    "[05_30]": "https://cdn.discordapp.com/attachments/1526672551219036263/1526674946904948897/05__30__.png?ex=6a57e257&is=6a5690d7&hm=2be3e3aac349e14b6991b97923cd4ab27d8f2febf1ad41f5e4973fdfb7aaf3cf&",
-    "[05_22]": "https://cdn.discordapp.com/attachments/1526672551219036263/1526674934745534585/05__22__.png?ex=6a57e254&is=6a5690d4&hm=2e17026df8226878ec574452f3a7227863ba74c473531e8647d635fba5813052&",
-    "[05_12]": "https://cdn.discordapp.com/attachments/1526672551219036263/1526674908287864832/05__12_.png?ex=6a57e24e&is=6a5690ce&hm=aa0cf1a60639607939065f85679e302b59cd4ff9453930c5fce3a7e2f94de31e&",
-    "[05_05]": "https://cdn.discordapp.com/attachments/1526672551219036263/1526674892009898014/05__05_.png?ex=6a57e24a&is=6a5690ca&hm=2cf30d32b91b02f7338b657183619126c9d68bb6e7e92e9617a51720dc18a566&",
-    "[03_1_28]": "https://cdn.discordapp.com/attachments/1526672551219036263/1526674825182056508/03_1_28_.png?ex=6a57e23a&is=6a5690ba&hm=b2f36014be705ed4eb2622f0d0bf8cac6949c9c939aab6847d5299bacd3f1da3&",
-    "[03_1_27]": "https://cdn.discordapp.com/attachments/1526672551219036263/1526673897272115332/03_1_27_.png?ex=6a57e15d&is=6a568fdd&hm=93aeedf284721ce695664b42f16173f875e6f54714978aefb6617e1ed6890df7&",
-    "[03_1_07]": "https://cdn.discordapp.com/attachments/1526672551219036263/1526673661958820001/03_1_07_.png?ex=6a57e125&is=6a568fa5&hm=18bfadb321b2e777d7c0381ad833b580f93de29f20e1d32f0501b293dccc0849&",
-    "[02_2_30]": "https://cdn.discordapp.com/attachments/1526672551219036263/1526673515372347552/02_2_30_.png?ex=6a57e102&is=6a568f82&hm=c4657edc094e2fb1e2ef23adaacf4a061457af0f606ceafaf282940611505cf3&",
-    "[02_2_25]": "https://cdn.discordapp.com/attachments/1526672551219036263/1526673495973695710/02_2_25_.png?ex=6a57e0fd&is=6a568f7d&hm=423cc66789b4bb094c81d8ba71a7564b47d8713de36d41dae83dea215d0f2b05&",
-    "[02_2_16]": "https://cdn.discordapp.com/attachments/1526672551219036263/1526673476323381491/02_2_16_.png?ex=6a57e0f8&is=6a568f78&hm=d186eee982f987ab40d046918eff5ad42b527c43c6089ac2be178a473e2d748a&",
-    "[02_2_05]": "https://cdn.discordapp.com/attachments/1526672551219036263/1526673450406510642/02_2_05_.png?ex=6a57e0f2&is=6a568f72&hm=8d6bb5a3455f016de58e50d8af945bb55acb9e298a434896499913813f8fa6b3&",
-    "[01_1_30]": "https://cdn.discordapp.com/attachments/1526672551219036263/1526673419935154327/01_1_30_.png?ex=6a57e0eb&is=6a568f6b&hm=80ae8761557687a628e6d74efdb71ec58a4f1a53adbab5b5596b8e6556c7dd60&",
-    "[01_1_23]": "https://cdn.discordapp.com/attachments/1526672551219036263/1526673412032823367/01_1_23_.png?ex=6a57e0e9&is=6a568f69&hm=a5811a807e4c550e60805285d1a077bfde35e977937cb13210fabca632790b3c&",
-    "[01_1_16]": "https://cdn.discordapp.com/attachments/1526672551219036263/1526673372144996392/01_1_16__.png?ex=6a57e0e0&is=6a568f60&hm=5502df6c8fc1f4bc16ccb8a527d7e8711db749ef3496bbc13fd288de47ba556e&",
-    "[01_22_02]": "https://cdn.discordapp.com/attachments/1526672551219036263/1526673339886862397/01__22__02.png?ex=6a57e0d8&is=6a568f58&hm=fc8fc92cd249e4c75223dc9a7979c92483ef056ad8a199545c005b6830742595&",
-    "[47]": "https://cdn.discordapp.com/attachments/1526672551219036263/1526673271393751092/47_.png?ex=6a57e0c8&is=6a568f48&hm=b416c3c0c618b6e919878d88300df32d67dd0b6509ab695477c737938e9d6307&",
-    "[37]": "https://cdn.discordapp.com/attachments/1526672551219036263/1526673255656591400/37_.png?ex=6a57e0c4&is=6a568f44&hm=74ab3d98323826a5aae9a7e4c20423f5292e44fefd71262bbf6e524f64581ad8&",
-    "[28_]": "https://cdn.discordapp.com/attachments/1526672551219036263/1526673152518914059/28_.png?ex=6a57e0ab&is=6a568f2b&hm=d4b3c9e2048151629c3722020551b8434172c8aa3298baf2efb7e2e82fd62573&",
-    "[22_]": "https://cdn.discordapp.com/attachments/1526672551219036263/1526673131736141964/22_.png?ex=6a57e0a6&is=6a568f26&hm=de08f03c6c11a625f3f488a7d3af53c4d1b7d4cf83d0953cbe760aeb97e9a40c&",
-    "[13]": "https://cdn.discordapp.com/attachments/1526672551219036263/1526673110080684183/13__.png?ex=6a57e0a1&is=6a568f21&hm=6af603e4b8a53ae099634c92364c3ea8112bc30d326349d33043a0c8a2de3a61&",
-    "[01]": "https://cdn.discordapp.com/attachments/1526672551219036263/1526673088476086363/01_.png?ex=6a57e09c&is=6a568f1c&hm=c47914e5f9da2bceb1619f32f9c7752541fcdbe92987a31f74e3711d8a19439d&",
-    "[46]": "https://cdn.discordapp.com/attachments/1526672551219036263/1526673029428678866/46.gif?ex=6a57e08e&is=6a568f0e&hm=5dfaf258d849529549cf60c3641df4f55bfeb8a3f8290168fa5bb0137407e3f2&",
-    "[45]": "https://cdn.discordapp.com/attachments/1526672551219036263/1526673010608836790/45.png?ex=6a57e089&is=6a568f09&hm=1e72c5c03a1cc89bfa646efd0cea808e6ab40ef355cffba0820e34da58d90fe0&",
-    "[28]": "https://cdn.discordapp.com/attachments/1526672551219036263/1526672990740414554/28.png?ex=6a57e085&is=6a568f05&hm=3291801b6a85b007defb78127b42e13025df6597665e1c3279f104d9ff23d87c&",
-    "[33]": "https://cdn.discordapp.com/attachments/1526672551219036263/1526672993097482331/33.gif?ex=6a57e085&is=6a568f05&hm=06224c573829f6b7c3390784ad2cd831496488f762067722d352503d0438e78f&",
-    "[27]": "https://cdn.discordapp.com/attachments/1526672551219036263/1526672975451918406/27.gif?ex=6a57e081&is=6a568f01&hm=d17d1781a09338dd4d386423f8156414ec7368ba45f263d36f124de3f3de5564&",
-    "[20]": "https://cdn.discordapp.com/attachments/1526672551219036263/1526672976404283634/20.png?ex=6a57e081&is=6a568f01&hm=f2d1904fb07f9c12744b837d315943c13cd5de18ecf8b46b0c4359da2713bf64&",
-    "[12]": "https://cdn.discordapp.com/attachments/1526672551219036263/1526672953050136667/12.gif?ex=6a57e07c&is=6a568efc&hm=6bd581f57afd49bbb22d9d568ff0c7f8bcdea957a93819d9b01c313440aa8e79&",
-    "[02]": "https://cdn.discordapp.com/attachments/1526672551219036263/1526672940048056511/02.gif?ex=6a57e079&is=6a568ef9&hm=71d93cde389b205d96cb0ab39d5bcdc7130a780cb122f6bf1f1c57c738615443&",
-    "[27_RM]": "https://cdn.discordapp.com/attachments/1526672551219036263/1526672900197843004/27_RM.png?ex=6a57e06f&is=6a568eef&hm=40dd0ed56f71207983f51c3089d80c7df2d4c036123850eda091c2d80bd0be65&",
-    "[01_RM]": "https://cdn.discordapp.com/attachments/1526672551219036263/1526672794199527585/01_RM.gif?ex=6a57e056&is=6a568ed6&hm=d4942c0ec080464f9cf618cbf82a48db544c9d0e08cfc76581a9beb5e35124a5&",
-    "[07_RM]": "https://cdn.discordapp.com/attachments/1526672551219036263/1526672796560920596/07_RM.png?ex=6a57e056&is=6a568ed6&hm=34fbd6700c4e201eadbdf7d678e80bb6bc7d7b875ad7c4843dbec97c8f7605f8&",
-    "[10_RM]": "https://cdn.discordapp.com/attachments/1526672551219036263/1526672855801135104/10_RM.png?ex=6a57e065&is=6a568ee5&hm=97a16111c90a486ed64a21a63e3db2c7d55a1548702edb8d8d73a8a4e2be20ea&",
-    "[19_RM]": "https://cdn.discordapp.com/attachments/1526672551219036263/1526672882888081660/19_RM.png?ex=6a57e06b&is=6a568eeb&hm=64b9885a8f945cd218bff624d7af1268a11bcb8663a8f678899564cb46f34809&"
+    "[토끼모코코]": "https://media.discordapp.net/attachments/1526672551219036263/1526672794199527585/01_RM.gif?ex=6a57e056&is=6a568ed6&hm=d4942c0ec080464f9cf618cbf82a48db544c9d0e08cfc76581a9beb5e35124a5&",
+    "[춤]": "https://media.discordapp.net/attachments/1526672551219036263/1526672794530615407/02_RM.gif?ex=6a57e056&is=6a568ed6&hm=9ce50cb3e99e58a1ed13f4e4696d0d1d0392b5bece6fa0dba71533c5bd8b0741&",
+    "[하트]": "https://media.discordapp.net/attachments/1526672551219036263/1526672794945978529/03_RM.png?ex=6a57e056&is=6a568ed6&hm=6e5bd6e98258fc1fd4d94ca5038632fd770b01a567f2593f01603bc757706230&=&format=webp&quality=lossless",
+    "[핥짝1]": "https://media.discordapp.net/attachments/1526672551219036263/1526672795470139392/04_RM.png?ex=6a57e056&is=6a568ed6&hm=bc71adc8e05d1ff995f6f7064b3fdd2d365f7ab6b493a1fb08656e236c3b6719&=&format=webp&quality=lossless",
+    "[초롱]": "https://media.discordapp.net/attachments/1526672551219036263/1526672795780648981/05_RM.gif?ex=6a57e056&is=6a568ed6&hm=644ac64b4e4281f06a135cfba5c36e30f1b604d25fac22035ec4c4b0d3b4982e&",
+    "[페로몬]": "https://media.discordapp.net/attachments/1526672551219036263/1526672796162199773/06_RM.png?ex=6a57e056&is=6a568ed6&hm=d229b0c1d590c6ef102a2293020dcd16da5d98eda042cbf5c323e36cab890736&=&format=webp&quality=lossless",
+    "[핥짝2]": "https://media.discordapp.net/attachments/1526672551219036263/1526672796560920596/07_RM.png?ex=6a57e056&is=6a568ed6&hm=34fbd6700c4e201eadbdf7d678e80bb6bc7d7b875ad7c4843dbec97c8f7605f8&=&format=webp&quality=lossless"
 }
+
 
 # =========================
 # 기본 이벤트 처리
@@ -726,11 +697,11 @@ async def on_message(message):
         embed = discord.Embed(color=0x2B2D31)
         embed.set_image(url=image_url)
         
-        # 3. 유저가 친 명령어 텍스트(예: [06_32])를 지우고 싶다면 아래 줄의 '#'을 지우세요.
+        # 3. 유저가 친 명령어 텍스트(예: [01_RM])를 지우고 싶다면 아래 줄의 '#'을 지우세요.
         # await message.delete()
         
-        # 스티커 띄우기 (15분 뒤 자동 삭제 방식을 쓴다면 delete_after=900 유지)
-        await message.channel.send(embed=embed, delete_after=900)
+        # 스티커 띄우기 (스티커는 타이머 제외 - delete_after 옵션 삭제)
+        await message.channel.send(embed=embed)
         return # 스티커를 출력했으면 아래 명령어 처리는 건너뜀
 
     # 스티커가 아니면 일반 명령어 처리
