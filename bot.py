@@ -668,6 +668,24 @@ STICKER_MAP = {
     "[초롱]": "https://media.discordapp.net/attachments/1526672551219036263/1526672795780648981/05_RM.gif?ex=6a57e056&is=6a568ed6&hm=644ac64b4e4281f06a135cfba5c36e30f1b604d25fac22035ec4c4b0d3b4982e&",
     "[페로몬]": "https://media.discordapp.net/attachments/1526672551219036263/1526672796162199773/06_RM.png?ex=6a57e056&is=6a568ed6&hm=d229b0c1d590c6ef102a2293020dcd16da5d98eda042cbf5c323e36cab890736&=&format=webp&quality=lossless",
     "[핥짝2]": "https://media.discordapp.net/attachments/1526672551219036263/1526672796560920596/07_RM.png?ex=6a57e056&is=6a568ed6&hm=34fbd6700c4e201eadbdf7d678e80bb6bc7d7b875ad7c4843dbec97c8f7605f8&=&format=webp&quality=lossless"
+    "[그만]": "https://media.discordapp.net/attachments/1526672551219036263/1526672854744170647/08_RM.png?ex=6a57e064&is=6a568ee4&hm=452bababbf69217af7fa1a522eb7aeb8a9544b0006b1c4b878c99faed98cabe6&=&format=webp&quality=lossless",
+    "[하트2]": "https://media.discordapp.net/attachments/1526672551219036263/1526672855318921306/09_RM.png?ex=6a57e064&is=6a568ee4&hm=4625dc45a1966ad61ce9ced3a562f3443a6bbe27d9d09c6199b85bc4e995314a&=&format=webp&quality=lossless",
+    "[고인물]": "https://media.discordapp.net/attachments/1526672551219036263/1526672855801135104/10_RM.png?ex=6a57e065&is=6a568ee5&hm=97a16111c90a486ed64a21a63e3db2c7d55a1548702edb8d8d73a8a4e2be20ea&=&format=webp&quality=lossless",
+    "[고인물2]": "https://media.discordapp.net/attachments/1526672551219036263/1526672856342073414/11_RM.png?ex=6a57e065&is=6a568ee5&hm=c56ce161fe20f64c2820c48164b60954005c375d6302fefe86cd41ecfb7b310c&=&format=webp&quality=lossless",
+    "[쓰담코]": "https://media.discordapp.net/attachments/1526672551219036263/1526672856728207420/12_RM.png?ex=6a57e065&is=6a568ee5&hm=2a8053c9622ed90d8ffb17419c316434e11b1cd581112f1bfea3b191b771f166&=&format=webp&quality=lossless",
+    "[거절코]": "https://media.discordapp.net/attachments/1526672551219036263/1526672857126408324/13_RM.png?ex=6a57e065&is=6a568ee5&hm=c6126a2a00eee67854313d00fd842881c028bb9cedd87e46098bedae7afb3519&=&format=webp&quality=lossless",
+    "[메롱]": "https://media.discordapp.net/attachments/1526672551219036263/1526672857604821194/14_RM.png?ex=6a57e065&is=6a568ee5&hm=f5400b25ff74aa2e55a402aa1796b22ba326ba87ab7ca605b647319e69ae9db8&=&format=webp&quality=lossless",
+    "[찌르기거부]": "https://media.discordapp.net/attachments/1526672551219036263/1526672857936040097/15_RM.png?ex=6a57e065&is=6a568ee5&hm=0b1e3368b451d4c6dbecb9f62ac9544feb00bef0fd9b627a2fe1b572f7dc9232&=&format=webp&quality=lossless",
+    "[찌르기]": "https://media.discordapp.net/attachments/1526672551219036263/1526672858309202041/16_RM.png?ex=6a57e065&is=6a568ee5&hm=7fbb0109c16fd62545d936f76a8317d5b91652db499ec246ba69b96f3a2b1aa0&=&format=webp&quality=lossless"
+    "[신남!]": "https://media.discordapp.net/attachments/1526672551219036263/1526672882011476089/17_RM.png?ex=6a57e06b&is=6a568eeb&hm=0ce9fec978cf5e69f11ee491a1042fa5ce366c2b9aa11a756442e68b64e9ee58&=&format=webp&quality=lossless",
+    "[항해!]": "https://media.discordapp.net/attachments/1526672551219036263/1526672882552541387/18_RM.png?ex=6a57e06b&is=6a568eeb&hm=e43c691242e1910a997a7743459e280d0e3c1626e0d2c5931eb00f53beab9d37&=&format=webp&quality=lossless",
+    "[채집!]": "https://media.discordapp.net/attachments/1526672551219036263/1526672882888081660/19_RM.png?ex=6a57e06b&is=6a568eeb&hm=64b9885a8f945cd218bff624d7af1268a11bcb8663a8f678899564cb46f34809&=&format=webp&quality=lossless",
+    "[사냥!]": "https://media.discordapp.net/attachments/1526672551219036263/1526672883336613908/20_RM.png?ex=6a57e06b&is=6a568eeb&hm=8369147cd9c344275b8abb44034ae68eeae2cea02b30951a66a3b1d8a5e49615&=&format=webp&quality=lossless",
+    "[?]": "https://media.discordapp.net/attachments/1526672551219036263/1526672883739525150/21_RM_v01.png?ex=6a57e06b&is=6a568eeb&hm=c5d76f0f416a00063ef7205009dcd8da077f5e95ba225df00ae35d62a75ceedb&=&format=webp&quality=lossless",
+    "[숨바꼭질]": "https://media.discordapp.net/attachments/1526672551219036263/1526672884062228510/22_RM.png?ex=6a57e06b&is=6a568eeb&hm=bdad934918997d0c52ff2756bbe67aa4c958c3061c8e1082d36eaf589bd9b52d&=&format=webp&quality=lossless",
+    "[어째해요]": "https://media.discordapp.net/attachments/1526672551219036263/1526672884490309843/23_RM.png?ex=6a57e06b&is=6a568eeb&hm=6495f81860ea9d5e50f43cfa56eaac87b90552cd058c44619b6804be3a26527f&=&format=webp&quality=lossless",
+    "[몰라]": "https://media.discordapp.net/attachments/1526672551219036263/1526672884796489851/24_RM.png?ex=6a57e06b&is=6a568eeb&hm=87e242ceaa184de1610c47c642a9477c838bed821a4d8cb467fcf9f5c8721f55&=&format=webp&quality=lossless",
+    "[모코코]": "https://media.discordapp.net/attachments/1526672551219036263/1526672885106610280/25_RM.png?ex=6a57e06c&is=6a568eec&hm=8e38c330616462ea3afd80a8d2f8b2400a84b3e0a741ef8aab62be229ae9af33&=&format=webp&quality=lossless"
 }
 
 
