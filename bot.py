@@ -39,7 +39,7 @@ def call_lostark_api(endpoint, character_name):
 
 
 # =========================
-# 🏛️ 데이터베이스 (낙원, 시너지, 지옥/나락 보상)
+# 🏛️ 데이터베이스 (낙원, 시너지, 지옥/나락 보상, 수익 계산기)
 # =========================
 NAKWON_SKILL_CODES = {
     "버서커": {"code": "D4CA6251267CE8902F1FEA21762F9F28C30ECF11AACE115BF4D520F554689BBF66BD3DF1DE277B6B31F20462AD6E97B2C89695136F98A789B8A62CD53DB5935A", "tip": "💡 시너지 스킬 레드 더스트(Q) 묻히고 잡으시면 됩니다."},
@@ -125,6 +125,21 @@ NARAK_DATA = {
     "1700": {"어빌": 5052039, "보석": 1364000, "재련보조": 1363200, "각인서": 1173360, "돌": 900000, "팔찌": 800000, "골드": 540000, "젬": 304535},
     "1640": {"어빌": 4041632, "보석": 1023000, "재련보조": 1011750, "골드": 480000, "팔찌": 375000, "돌": 360000}
 }
+
+GOLD_TABLE = [
+    (1750, 9999, "성당3+종막하드+세르카나메", 75000, 75000),
+    (1740, 1749, "성당2+종막하드+세르카나메", 72000, 72000),
+    (1730, 1739, "성당2+종막하드+세르카하드", 66000, 66000),
+    (1720, 1729, "성당2+4막하드+세르카노말", 55000, 55000),
+    (1710, 1719, "성당1+종막노말+세르카노말", 47000, 47000),
+    (1700, 1709, "지평1+4막노말+3막하드", 42000, 42000),
+    (1690, 1699, "3막노말+2막하드+1막하드", 26000, 26000),
+    (1680, 1689, "3막노말+2막노말+1막하드", 24000, 24000),
+    (1670, 1679, "2막노말+1막노말+서막하드", 17000, 17000),
+    (1660, 1669, "1막노말+서막하드+베히모스", 14000, 14000),
+    (1640, 1659, "서막하드+베히모스+카멘하드", 11000, 11000),
+    (0, 1639, "골드 획득 불가 배럭", 0, 0)
+]
 
 
 # =========================
@@ -657,6 +672,115 @@ class VerifyView(discord.ui.View):
 
 
 # =========================
+# 💰 원정대 주간 예상 수익 계산기 (!수익)
+# =========================
+@bot.command(name="수익")
+async def calculate_roster_gold(ctx, character_name: str = None):
+    if not character_name:
+        await ctx.send("❌ 사용법: `!수익 [캐릭터이름]`", delete_after=10)
+        return
+        
+    status_msg = await ctx.send(f"🔍 **{character_name}** 님의 원정대 최적화 코스를 설계 중입니다...")
+    
+    try:
+        if not LOSTARK_API_KEY:
+            return await status_msg.edit(content="❌ API 키가 설정되지 않았습니다.", delete_after=10)
+            
+        headers = {"accept": "application/json", "authorization": f"bearer {LOSTARK_API_KEY}"}
+        encoded_name = urllib.parse.quote(character_name)
+        url = f"https://developer-lostark.game.onstove.com/characters/{encoded_name}/siblings"
+        
+        r = requests.get(url, headers=headers)
+        if r.status_code != 200:
+            return await status_msg.edit(content="❌ 원정대 정보를 불러오지 못했습니다. (닉네임 오타 확인)", delete_after=10)
+            
+        siblings = r.json()
+        if not siblings:
+            return await status_msg.edit(content="❌ 캐릭터 정보가 없습니다.", delete_after=10)
+            
+        # 템렙 기준 내림차순 정렬 후 상위 6캐릭 추출
+        for char in siblings:
+            clean_lvl = str(char.get("ItemAvgLevel", "0")).replace(",", "")
+            char["num_lvl"] = float(clean_lvl)
+            
+        sorted_chars = sorted(siblings, key=lambda x: x["num_lvl"], reverse=True)
+        gold_earners = sorted_chars[:6]
+        
+        roster_unbound = 0
+        roster_bound = 0
+        
+        embed = discord.Embed(title=f"💰 {character_name} 님의 주간 레이드 수익표", color=0x2ECC71)
+        embed.description = "💡 템렙 상위 6캐릭 기준, **유통 골드 확보에 가장 유리한 최적 코스**입니다."
+        
+        for idx, char in enumerate(gold_earners, 1):
+            c_name = char.get("CharacterName", "알 수 없음")
+            c_class = char.get("CharacterClassName", "")
+            c_lvl = char["num_lvl"]
+            
+            r_desc = "수익 없음"
+            u_gold = 0
+            b_gold = 0
+            
+            for min_l, max_l, desc, ug, bg in GOLD_TABLE:
+                if min_l <= c_lvl <= max_l:
+                    r_desc = desc
+                    u_gold = ug
+                    b_gold = bg
+                    break
+                    
+            if u_gold == 0 and b_gold == 0:
+                embed.add_field(
+                    name=f"[{idx}] {c_name} ({c_class}) - Lv.{c_lvl:,.2f}",
+                    value="└ 🚫 골드 획득 불가 배럭",
+                    inline=False
+                )
+                continue
+                
+            total_char_gold = u_gold + b_gold
+            roster_unbound += u_gold
+            roster_bound += b_gold
+            
+            # 캐릭터별 UI 출력 부분
+            val_text = f"🎯 **추천 코스:** `{r_desc}`\n"
+            val_text += f"└ 🪙 **유통 가능:** `{u_gold:,} G`\n"
+            val_text += f"└ 🔒 **귀속 골드:** `{b_gold:,} G`\n"
+            val_text += f"└ 📊 **총합:** `{total_char_gold:,} G`"
+            
+            embed.add_field(
+                name=f"[{idx}] {c_name} ({c_class}) - Lv.{c_lvl:,.2f}",
+                value=val_text,
+                inline=False
+            )
+            
+        # 원정대 총합 결산 UI
+        roster_total_val = roster_unbound + roster_bound
+        embed.add_field(name="━━━━━━━━━━━━━━━━━━", value="**[ 💸 원정대 주간 예상 총합 ]**", inline=False)
+        embed.add_field(name="🪙 기본 분배 (쌀먹/자율)", value=f"• 유통 골드: **{roster_unbound:,} G**\n• 귀속 골드: **{roster_bound:,} G**", inline=True)
+        embed.add_field(name="🔒 전액 귀속 (원정대 풀성장)", value=f"• 유통 골드: **0 G**\n• 귀속 골드: **{roster_total_val:,} G**", inline=True)
+        
+        await status_msg.delete()
+        await ctx.send(embed=embed)
+        
+    except Exception as e:
+        await status_msg.edit(content=f"❌ 데이터 처리 중 오류가 발생했습니다.\n디버그 코드: `{e}`", delete_after=10)
+
+
+# =========================
+# 🧹 채팅 정리 명령어 (!정리)
+# =========================
+@bot.command(name="정리")
+@commands.has_permissions(manage_messages=True)
+async def clear_messages(ctx, count: int = 10):
+    deleted = await ctx.channel.purge(limit=count + 1)
+    await ctx.send(f"✅ **{len(deleted)-1}개**의 메시지를 정리했습니다.", delete_after=5)
+
+@clear_messages.error
+async def clear_messages_error(ctx, error):
+    if isinstance(error, commands.MissingPermissions):
+        await ctx.send("❌ 이 방의 메시지를 정리할 권한이 없습니다! (디스코드 '메시지 관리' 권한 필요)", delete_after=5)
+
+
+# =========================
 # 🎨 로아 스티커 (자동 이미지 반응) 기능
 # =========================
 # 💡 괄호 [] 안의 명령어를 디스코드에서 쓰기 편한 실용 단어로 직접 수정하시면 편합니다!
@@ -731,7 +855,6 @@ STICKER_MAP = {
     "[관람요즈콘]": "https://media.discordapp.net/attachments/1526672551219036263/1526900929293717575/15.gif?ex=6a58b4cd&is=6a57634d&hm=7ab4311418bb48e52d3add04ee51d868414f662768a3012830b110a8937bf191&="
 }
 
-
 # =========================
 # 기본 이벤트 처리
 # =========================
@@ -757,9 +880,6 @@ async def on_message(message):
         # 2. 임베드에 이미지만 담아서 전송
         embed = discord.Embed(color=0x2B2D31)
         embed.set_image(url=image_url)
-        
-        # 3. 유저가 친 명령어 텍스트(예: [01_RM])를 지우고 싶다면 아래 줄의 '#'을 지우세요.
-        # await message.delete()
         
         # 스티커 띄우기 (스티커는 타이머 제외 - delete_after 옵션 삭제)
         await message.channel.send(embed=embed)
