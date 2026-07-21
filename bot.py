@@ -1030,7 +1030,7 @@ class ThiefCardButton(discord.ui.Button):
                 description=f"🚨 끝까지 🂿조커(도둑)를 손에 쥐고 있던 **{loser.mention}** 님이 도둑으로 검거되었습니다!",
                 color=0xE74C3C
             )
-            await interaction.response.edit_message(embed=end_embed, view=None)
+            await interaction.response.edit_message(content=result_desc, embed=end_embed, view=None)
             return
 
         curr_idx = game["players"].index(game["current_player"])
@@ -1041,8 +1041,10 @@ class ThiefCardButton(discord.ui.Button):
                 game["current_player"] = next_p
                 break
                 
+        # 1. 방금 누른 버튼 메시지를 결과 로그로 변경 (도배 방지)
         await interaction.response.edit_message(content=result_desc, view=None)
         
+        # 2. 게임판을 새로 보내지 않고, 기존 게임판을 수정
         board_view = ThiefGameView(game)
         embed = discord.Embed(title="🃏 도둑잡기 진행 중...", color=0x3498DB)
         status_text = ""
@@ -1055,8 +1057,7 @@ class ThiefCardButton(discord.ui.Button):
                 status_text += f"• {p.mention} ➜ 손패 **{card_count}장**{is_turn}\n"
         embed.description = status_text
         
-        msg = await game["channel"].send(embed=embed, view=board_view)
-        game["message"] = msg
+        await game["message"].edit(embed=embed, view=board_view)
 
         active_idx = game["players"].index(game["current_player"])
         target_p = None
@@ -1068,7 +1069,13 @@ class ThiefCardButton(discord.ui.Button):
         
         if target_p:
             select_view = TargetSelectView(game, target_p)
-            await game["channel"].send(f"👉 {game['current_player'].mention} 님 차례입니다! **{target_p.display_name}** 님의 패 중에서 뽑을 카드를 선택하세요:", view=select_view)
+            # 3. 멘션(알람) 없이 버튼 메시지만 출력
+            await game["channel"].send(f"👉 **{game['current_player'].display_name}** 님 차례입니다! **{target_p.display_name}** 님의 패 중에서 뽑을 카드를 선택하세요:", view=select_view)
+            
+            # 4. 알람용 멘션 후 3초 뒤 자동 삭제
+            ping_msg = await game["channel"].send(f"🔔 {game['current_player'].mention} 님, 차례입니다!")
+            await ping_msg.delete(delay=3)
+
 
 @bot.command(name="도둑잡기모집")
 async def start_thief_lobby(ctx):
@@ -1154,8 +1161,12 @@ async def start_thief_game(ctx):
     
     target_p = players[1]
     select_view = TargetSelectView(game, target_p)
-    await ctx.send(f"👉 첫 턴인 {game['current_player'].mention} 님! **{target_p.display_name}** 님의 패 중에서 뽑을 카드를 선택하세요:", view=select_view)
-
+    # 멘션 없이 알람 방지
+    await ctx.send(f"👉 첫 턴인 **{game['current_player'].display_name}** 님! **{target_p.display_name}** 님의 패 중에서 뽑을 카드를 선택하세요:", view=select_view)
+    
+    # 3초 뒤 지워지는 핑
+    ping_msg = await ctx.send(f"🔔 {game['current_player'].mention}님, 첫 차례입니다!")
+    await ping_msg.delete(delay=3)
 
 # =========================
 # 🎨 로아 스티커 (전체 맵 복원)
