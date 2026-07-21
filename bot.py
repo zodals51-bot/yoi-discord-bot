@@ -839,8 +839,6 @@ class TikaTukaGameView(discord.ui.View):
                 alkkagi_triggered = True
                 self.message = f"💥 **알까기 성공!** 내 주사위와 상대방의 일반 주사위가 소멸했습니다! 보상으로 🛡️ **실드 주사위**를 받아 연속으로 배치하세요!"
             else:
-                # 만약 상대방 같은 줄에 주사위가 있더라도 전부 🛡️실드 주사위라면 알까기 실패 처리되고 일반 주사위가 정상 장착됨
-                # (혹은 상대방 줄에 아예 같은 숫자가 없어도 정상 장착)
                 pass
         
         # 알까기가 발동 안 했으면(실드 주사위이거나, 상대 주사위가 실드라 파괴 불가능했거나, 빈 칸일 때) 정상 장착
@@ -936,6 +934,227 @@ async def mafia_start(ctx):
             
     game["status"] = "night"
     await ctx.send("🌙 밤이 되었습니다. 봇 DM을 확인하세요.")
+
+# =========================
+# 🂿 디스코드판 '도둑잡기' 보드게임 시스템
+# =========================
+thief_games = {}
+
+class ThiefGameView(discord.ui.View):
+    def __init__(self, game_data):
+        super().__init__(timeout=None)
+        self.game_data = game_data
+
+    async def update_board(self, channel):
+        embed = discord.Embed(title="🃏 도둑잡기 진행 중...", color=0x3498DB)
+        status_text = ""
+        for p in self.game_data["players"]:
+            if p in self.game_data["eliminated"]:
+                status_text += f"• ~~{p.display_name}~~ ➜ **탈출 완료! 🎉**\n"
+            else:
+                card_count = len(self.game_data["hands"][p.id])
+                is_turn = " ◀ (현재 턴)" if p == self.game_data["current_player"] else ""
+                status_text += f"• {p.mention} ➜ 손패 **{card_count}장**{is_turn}\n"
+        embed.description = status_text
+        await self.game_data["message"].edit(embed=embed, view=self)
+
+    @discord.ui.button(label="내 손패 보기 (DM)", style=discord.ButtonStyle.primary, custom_id="check_hand")
+    async def check_hand(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user not in self.game_data["players"]:
+            return await interaction.response.send_message("❌ 이 게임에 참여하지 않으셨습니다.", ephemeral=True)
+        hand = self.game_data["hands"][interaction.user.id]
+        hand_str = " ".join([f"`[{c}]`" for c in hand]) if hand else "없음 (탈출 성공!)"
+        await interaction.response.send_message(f"🎴 **[현재 내 손패]**\n{hand_str}", ephemeral=True)
+
+class TargetSelectView(discord.ui.View):
+    def __init__(self, game_data, target_player):
+        super().__init__(timeout=60)
+        self.game_data = game_data
+        self.target_player = target_player
+        
+        target_hand = self.game_data["hands"][target_player.id]
+        for i in range(len(target_hand)):
+            self.add_item(ThiefCardButton(i, f"{i+1}번째 카드"))
+
+class ThiefCardButton(discord.ui.Button):
+    def __init__(self, card_idx, label):
+        super().__init__(label=label, style=discord.ButtonStyle.secondary)
+        self.card_idx = card_idx
+
+    async def callback(self, interaction: discord.Interaction):
+        view: TargetSelectView = self.view
+        game = view.game_data
+        
+        if interaction.user != game["current_player"]:
+            return await interaction.response.send_message("❌ 당신의 차례가 아닙니다!", ephemeral=True)
+            
+        target = view.target_player
+        target_hand = game["hands"][target.id]
+        
+        if self.card_idx >= len(target_hand):
+            return await interaction.response.send_message("❌ 이미 선택되었거나 존재하지 않는 카드입니다.", ephemeral=True)
+            
+        drawn_card = target_hand.pop(self.card_idx)
+        current_hand = game["hands"][interaction.user.id]
+        current_hand.append(drawn_card)
+        
+        removed_pairs = []
+        cleaned_hand = []
+        card_counts = {}
+        for c in current_hand:
+            card_counts[c] = card_counts.get(c, 0) + 1
+            
+        for c in current_hand:
+            if c == "🂿 조커": 
+                cleaned_hand.append(c)
+            elif card_counts[c] % 2 == 0:
+                removed_pairs.append(c)
+            else:
+                cleaned_hand.append(c)
+        game["hands"][interaction.user.id] = cleaned_hand
+        
+        result_desc = f"✨ **{interaction.user.display_name}** 님이 **{target.display_name}** 님의 패에서 **`{drawn_card}`**을(를) 뽑았습니다!"
+        if removed_pairs:
+            result_desc += f"\n🗑️ 짝이 맞아 버려진 카드: {', '.join([f'`{p}`' for p in set(removed_pairs)])}"
+            
+        for p in [interaction.user, target]:
+            if len(game["hands"][p.id]) == 0 and p not in game["eliminated"]:
+                game["eliminated"].append(p)
+                result_desc += f"\n🎉 **{p.display_name} 님께서 모든 패를 털어내고 탈출하셨습니다!**"
+
+        active_players = [p for p in game["players"] if p not in game["eliminated"]]
+        if len(active_players) <= 1:
+            loser = active_players[0] if active_players else target
+            end_embed = discord.Embed(
+                title="🏁 도둑잡기 게임 종료!",
+                description=f"🚨 끝까지 🂿조커(도둑)를 손에 쥐고 있던 **{loser.mention}** 님이 도둑으로 검거되었습니다!",
+                color=0xE74C3C
+            )
+            await interaction.response.edit_message(embed=end_embed, view=None)
+            return
+
+        curr_idx = game["players"].index(game["current_player"])
+        while True:
+            curr_idx = (curr_idx + 1) % len(game["players"])
+            next_p = game["players"][curr_idx]
+            if next_p not in game["eliminated"]:
+                game["current_player"] = next_p
+                break
+                
+        await interaction.response.edit_message(content=result_desc, view=None)
+        
+        board_view = ThiefGameView(game)
+        embed = discord.Embed(title="🃏 도둑잡기 진행 중...", color=0x3498DB)
+        status_text = ""
+        for p in game["players"]:
+            if p in game["eliminated"]:
+                status_text += f"• ~~{p.display_name}~~ ➜ **탈출 완료! 🎉**\n"
+            else:
+                card_count = len(game["hands"][p.id])
+                is_turn = " ◀ (현재 턴)" if p == game["current_player"] else ""
+                status_text += f"• {p.mention} ➜ 손패 **{card_count}장**{is_turn}\n"
+        embed.description = status_text
+        
+        msg = await game["channel"].send(embed=embed, view=board_view)
+        game["message"] = msg
+
+        active_idx = game["players"].index(game["current_player"])
+        target_p = None
+        for i in range(1, len(game["players"])):
+            cand = game["players"][(active_idx + i) % len(game["players"])]
+            if cand not in game["eliminated"]:
+                target_p = cand
+                break
+        
+        if target_p:
+            select_view = TargetSelectView(game, target_p)
+            await game["channel"].send(f"👉 {game['current_player'].mention} 님 차례입니다! **{target_p.display_name}** 님의 패 중에서 뽑을 카드를 선택하세요:", view=select_view)
+
+@bot.command(name="도둑잡기모집")
+async def start_thief_lobby(ctx):
+    thief_games[ctx.guild.id] = {
+        "status": "recruiting", "players": [], "channel": ctx.channel
+    }
+    await ctx.send(embed=discord.Embed(title="🃏 도둑잡기 로비 생성!", description="참가하실 분들은 `!도둑잡기참가` 를 입력해주세요!\n(최소 2인 이상)", color=0x3498DB))
+
+@bot.command(name="도둑잡기참가")
+async def join_thief_game(ctx):
+    game = thief_games.get(ctx.guild.id)
+    if not game or game["status"] != "recruiting":
+        return await ctx.send("❌ 현재 모집 중인 도둑잡기 게임이 없습니다. `!도둑잡기모집`을 먼저 입력해주세요.", delete_after=10)
+    if ctx.author in game["players"]:
+        return await ctx.send("❌ 이미 참가하셨습니다.", delete_after=10)
+        
+    game["players"].append(ctx.author)
+    await ctx.send(f"✅ **{ctx.author.display_name}**님 도둑잡기 참가 완료! (현재 인원: {len(game['players'])}명)")
+
+@bot.command(name="도둑잡기시작")
+async def start_thief_game(ctx):
+    game = thief_games.get(ctx.guild.id)
+    if not game or game["status"] != "recruiting":
+        return await ctx.send("❌ 시작할 게임 로비가 없습니다.", delete_after=10)
+    players = game["players"]
+    if len(players) < 2:
+        return await ctx.send("❌ 인원이 부족합니다! 최소 2명이 필요합니다.", delete_after=10)
+        
+    game["status"] = "playing"
+    
+    card_pool = []
+    base_cards = ["🍎 사과", "🍌 바나나", "🍇 포도", "🍉 수박", "🍓 딸기", "🍑 복숭아", "🍒 체리", "🥝 키위"]
+    for c in base_cards:
+        card_pool.extend([c, c]) 
+    card_pool.append("🂿 조커") 
+    
+    random.shuffle(card_pool)
+    
+    hands = {p.id: [] for p in players}
+    idx = 0
+    while card_pool:
+        hands[players[idx % len(players)].id].append(card_pool.pop())
+        idx += 1
+        
+    for p_id in hands:
+        current_hand = hands[p_id]
+        cleaned = []
+        card_counts = {}
+        for c in current_hand:
+            card_counts[c] = card_counts.get(c, 0) + 1
+        for c in current_hand:
+            if c == "🂿 조커":
+                cleaned.append(c)
+            elif card_counts[c] % 2 == 0:
+                pass 
+            else:
+                cleaned.append(c)
+        hands[p_id] = cleaned
+        
+    game["hands"] = hands
+    game["eliminated"] = []
+    game["current_player"] = players[0]
+    
+    for p in players:
+        try:
+            my_hand_str = " ".join([f"`[{c}]`" for c in hands[p.id]])
+            await p.send(embed=discord.Embed(title="🃏 도둑잡기 배정된 손패", description=f"당신의 초기 손패입니다:\n{my_hand_str}", color=0x2ECC71))
+        except:
+            await ctx.send(f"⚠️ {p.mention} 님에게 DM을 보낼 수 없습니다. DM을 열어주세요!")
+
+    board_view = ThiefGameView(game)
+    embed = discord.Embed(title="🃏 도둑잡기 게임 시작!", description="게임판이 생성되었습니다. 아래 버튼을 눌러 내 손패를 확인하세요!", color=0x3498DB)
+    
+    status_text = ""
+    for p in players:
+        card_count = len(hands[p.id])
+        is_turn = " ◀ (현재 턴)" if p == game["current_player"] else ""
+        status_text += f"• {p.mention} ➜ 손패 **{card_count}장**{is_turn}\n"
+    embed.add_field(name="👥 플레이어 현황", value=status_text, inline=False)
+    
+    msg = await ctx.send(embed=embed, view=board_view)
+    game["message"] = msg
+    
+    target_p = players[1]
+    select_view = TargetSelectView(game, target_p)
+    await ctx.send(f"👉 첫 턴인 {game['current_player'].mention} 님! **{target_p.display_name}** 님의 패 중에서 뽑을 카드를 선택하세요:", view=select_view)
 
 
 # =========================
@@ -1042,4 +1261,5 @@ async def 인증패널(ctx):
 async def 큐브계산기(ctx): 
     await ctx.send(embed=discord.Embed(title="🎲 큐브 매칭", color=0x2B2D31), view=CubeView(), delete_after=900)
 
+bot.run(DISCORD_TOKEN)
 bot.run(DISCORD_TOKEN)
