@@ -665,7 +665,7 @@ async def clear_messages(ctx, count: int = 10):
 
 
 # =========================
-# 🎲 디스코드판 '티카투카' 보드게임 (!티카투카) - 최종 완성본
+# 🎲 디스코드판 '티카투카' 보드게임 (!티카투카) - 명령어 및 뷰 통합본
 # =========================
 class TikaTukaGameView(discord.ui.View):
     def __init__(self, p1, p2):
@@ -795,14 +795,12 @@ class TikaTukaGameView(discord.ui.View):
         if not self.has_reroll[self.current_player.id]:
             return await interaction.response.send_message("❌ 이미 리롤권을 모두 사용하셨습니다!", ephemeral=True)
             
-        # 리롤권 소모 (게임당 딱 1번)
         self.has_reroll[self.current_player.id] = False
         old_dice = self.current_dice
         self.current_dice = random.randint(1, 6)
         
         self.message = f"🔄 리롤 사용 완료! 기존 [{old_dice}] ➜ 새 주사위 **[{self.current_dice}]**"
         
-        # 버튼 비활성화 및 텍스트 변경
         button.label = "🔄 리롤권 소모됨"
         button.disabled = True
                 
@@ -828,32 +826,26 @@ class TikaTukaGameView(discord.ui.View):
         self.message = ""
         alkkagi_triggered = False
         
-        # 알까기 판정: 내가 내 보드에 놓았을 때, 상대방 같은 줄에 같은 숫자가 있는지 확인
         if is_mine:
             opponent = self.p2 if self.current_player == self.p1 else self.p1
             opp_col = self.board[opponent.id][col_idx]
             
             to_destroy = [d for d in opp_col if d["val"] == self.current_dice]
             if to_destroy:
-                # 알까기 성공: 상대방 같은 숫자 주사위 파괴 (내가 놓으려던 주사위도 같이 소멸하므로 target_col에 추가 안 함)
                 self.board[opponent.id][col_idx] = [d for d in opp_col if d["val"] != self.current_dice]
                 alkkagi_triggered = True
                 self.message = f"💥 **알까기 성공!** 내 주사위와 상대방의 [{self.current_dice}] 주사위가 함께 소멸했습니다! 보상으로 🛡️ **실드 주사위**를 받아 연속으로 배치하세요!"
         
-        # 알까기가 안 떴을 때만 정상적으로 보드에 주사위 장착
         if not alkkagi_triggered:
             target_col.append({"val": self.current_dice, "is_shield": self.is_shield_dice})
         
         if await self.check_game_end(interaction):
             return
             
-        # 턴 및 주사위 속성 결정
         if alkkagi_triggered:
-            # 알까기 성공 시: 턴이 안 넘어가고, 실드 주사위 하나를 부여받아 연속 진행
             self.is_shield_dice = True
             self.current_dice = random.randint(1, 6)
         else:
-            # 일반 진행 시 턴 넘김
             next_player = self.p2 if self.current_player == self.p1 else self.p1
             
             if self.is_board_full(next_player.id):
@@ -865,7 +857,6 @@ class TikaTukaGameView(discord.ui.View):
                 self.is_shield_dice = False
                 self.current_dice = random.randint(1, 6)
 
-        # 현재 턴 플레이어의 리롤권 상태에 맞게 버튼 UI 동기화
         for child in self.children:
             if getattr(child, "custom_id", "") == "btn_reroll":
                 can_reroll = self.has_reroll[self.current_player.id]
@@ -875,7 +866,6 @@ class TikaTukaGameView(discord.ui.View):
                 
         await interaction.response.edit_message(embed=self.generate_embed(), view=self)
         
-        # 알람 도배 방지 (3초 뒤 삭제)
         if alkkagi_triggered:
             ping_msg = await interaction.channel.send(f"💥 {self.current_player.mention} 님, 알까기 성공으로 실드 주사위를 획득하여 연속 턴을 진행합니다!")
         else:
@@ -883,6 +873,16 @@ class TikaTukaGameView(discord.ui.View):
             
         await ping_msg.delete(delay=3)
 
+@bot.command(name="티카투카")
+async def start_tikatuka(ctx, opponent: discord.Member):
+    if opponent.bot or opponent == ctx.author:
+        return await ctx.send("❌ 대결할 다른 길드원을 올바르게 멘션해 주세요!", delete_after=10)
+    view = TikaTukaGameView(ctx.author, opponent)
+    await ctx.send(embed=view.generate_embed(), view=view)
+    
+    ping_msg = await ctx.send(f"🔔 {ctx.author.mention}님, 게임이 시작되었습니다! 첫 차례입니다!")
+    await ping_msg.delete(delay=3)
+    
 # =========================
 # 🕵️ 마피아 게임 시스템 풀버전
 # =========================
