@@ -667,6 +667,9 @@ async def clear_messages(ctx, count: int = 10):
 # =========================
 # 🎲 디스코드판 '티카투카' 보드게임 (!티카투카) - 명령어 및 뷰 통합본
 # =========================
+# =========================
+# 🎲 디스코드판 '티카투카' 보드게임 (!티카투카) - 실드 주사위 파괴 면역 완벽 반영본
+# =========================
 class TikaTukaGameView(discord.ui.View):
     def __init__(self, p1, p2):
         super().__init__(timeout=None)
@@ -826,26 +829,38 @@ class TikaTukaGameView(discord.ui.View):
         self.message = ""
         alkkagi_triggered = False
         
-        if is_mine:
+        # 💡 [핵심 수정] 일반 주사위로 내 보드에 놓을 때 알까기 판정
+        if is_mine and not self.is_shield_dice:
             opponent = self.p2 if self.current_player == self.p1 else self.p1
             opp_col = self.board[opponent.id][col_idx]
             
-            to_destroy = [d for d in opp_col if d["val"] == self.current_dice]
-            if to_destroy:
-                self.board[opponent.id][col_idx] = [d for d in opp_col if d["val"] != self.current_dice]
+            # 상대방 줄에 같은 숫자가 있으면서, 그 주사위가 '실드 주사위(is_shield=True)'가 아닐 때만 파괴 가능!
+            has_destructible = any(d["val"] == self.current_dice and not d["is_shield"] for d in opp_col)
+            
+            if has_destructible:
+                # 알까기 성공: 상대방의 일반 주사위만 파괴하고, 내 주사위도 같이 소멸
+                self.board[opponent.id][col_idx] = [d for d in opp_col if not (d["val"] == self.current_dice and not d["is_shield"])]
                 alkkagi_triggered = True
-                self.message = f"💥 **알까기 성공!** 내 주사위와 상대방의 [{self.current_dice}] 주사위가 함께 소멸했습니다! 보상으로 🛡️ **실드 주사위**를 받아 연속으로 배치하세요!"
+                self.message = f"💥 **알까기 성공!** 내 주사위와 상대방의 일반 주사위가 소멸했습니다! 보상으로 🛡️ **실드 주사위**를 받아 연속으로 배치하세요!"
+            else:
+                # 만약 상대방 같은 줄에 주사위가 있더라도 전부 🛡️실드 주사위라면 알까기 실패 처리되고 일반 주사위가 정상 장착됨
+                # (혹은 상대방 줄에 아예 같은 숫자가 없어도 정상 장착)
+                pass
         
+        # 알까기가 발동 안 했으면(실드 주사위이거나, 상대 주사위가 실드라 파괴 불가능했거나, 빈 칸일 때) 정상 장착
         if not alkkagi_triggered:
             target_col.append({"val": self.current_dice, "is_shield": self.is_shield_dice})
         
         if await self.check_game_end(interaction):
             return
             
+        # 턴 및 주사위 속성 결정
         if alkkagi_triggered:
+            # 알까기 성공 시: 턴이 안 넘어가고, 실드 주사위 하나를 부여받아 연속 진행
             self.is_shield_dice = True
             self.current_dice = random.randint(1, 6)
         else:
+            # 일반 진행 시 턴 넘김
             next_player = self.p2 if self.current_player == self.p1 else self.p1
             
             if self.is_board_full(next_player.id):
