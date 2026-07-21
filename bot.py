@@ -1169,6 +1169,129 @@ async def start_thief_game(ctx):
     await ping_msg.delete(delay=3)
 
 # =========================
+# 🙈 디스코드판 '양세찬 게임' 시스템
+# =========================
+yangsechan_games = {}
+
+# 양세찬 게임 기본 제시어 (인물, 캐릭터 위주)
+YANGSECHAN_WORDS = [
+    "유재석", "아이언맨", "피카츄", "손흥민", "이순신", "마동석", "아이유", "침착맨", 
+    "스파이더맨", "짱구", "백종원", "김연아", "페이커", "해리포터", "도라에몽", 
+    "단군", "강호동", "블랙핑크 제니", "카리나", "뽀로로", "징징이", "펭수"
+]
+
+class YangSeChanView(discord.ui.View):
+    def __init__(self, game_data):
+        super().__init__(timeout=None)
+        self.game_data = game_data
+        
+        # 참가자 수만큼 버튼 생성
+        for player in game_data["players"]:
+            if player not in game_data["winners"]:
+                self.add_item(YangSeChanButton(player))
+        
+        # 정답 선언 버튼 (누구나 누를 수 있음)
+        self.add_item(GuessSuccessButton())
+
+class YangSeChanButton(discord.ui.Button):
+    def __init__(self, target_player):
+        super().__init__(label=f"{target_player.display_name}의 제시어", style=discord.ButtonStyle.secondary)
+        self.target_player = target_player
+
+    async def callback(self, interaction: discord.Interaction):
+        game = self.view.game_data
+        if interaction.user not in game["players"]:
+            return await interaction.response.send_message("❌ 게임 참가자가 아닙니다.", ephemeral=True)
+            
+        # 💡 [핵심] 자신의 버튼을 눌렀을 때 방어 로직
+        if interaction.user.id == self.target_player.id:
+            return await interaction.response.send_message("❌ **자신의 제시어는 절대 볼 수 없습니다!** 양심을 지켜주세요 🙈", ephemeral=True)
+            
+        # 남의 버튼을 눌렀을 때는 나에게만 살짝 알려줌
+        word = game["words"][self.target_player.id]
+        await interaction.response.send_message(f"👀 **{self.target_player.display_name}** 님의 이마에 붙은 제시어는 **[{word}]** 입니다!", ephemeral=True)
+
+class GuessSuccessButton(discord.ui.Button):
+    def __init__(self):
+        super().__init__(label="🎉 내 정답 맞춤!", style=discord.ButtonStyle.success, row=4)
+
+    async def callback(self, interaction: discord.Interaction):
+        game = self.view.game_data
+        if interaction.user not in game["players"]:
+            return await interaction.response.send_message("❌ 게임 참가자가 아닙니다.", ephemeral=True)
+            
+        if interaction.user in game["winners"]:
+            return await interaction.response.send_message("❌ 이미 정답을 맞추셨습니다!", ephemeral=True)
+            
+        word = game["words"][interaction.user.id]
+        game["winners"].append(interaction.user)
+        
+        result_desc = f"🎊 **{interaction.user.mention}** 님이 정답 **[{word}]** 을(를) 맞추고 통과하셨습니다!"
+        
+        # 생존자가 1명 이하로 남으면 게임 종료
+        remaining = [p for p in game["players"] if p not in game["winners"]]
+        if len(remaining) <= 1:
+            loser = remaining[0] if remaining else None
+            end_desc = result_desc + "\n\n🏁 **게임이 모두 종료되었습니다!**"
+            if loser:
+                end_desc += f"\n💀 영원히 고통받는 꼴찌: **{loser.mention}** (제시어: {game['words'][loser.id]})"
+                
+            end_embed = discord.Embed(title="🙈 양세찬 게임 종료!", description=end_desc, color=0x2ECC71)
+            await interaction.response.edit_message(embed=end_embed, view=None)
+        else:
+            # 아직 게임 진행 중이면 버튼 갱신 (통과자 버튼 제거)
+            await interaction.response.edit_message(content=result_desc, view=YangSeChanView(game))
+
+
+@bot.command(name="양세찬모집")
+async def ysc_lobby(ctx):
+    yangsechan_games[ctx.guild.id] = {
+        "status": "recruiting", "players": [], "channel": ctx.channel
+    }
+    embed = discord.Embed(
+        title="🙈 양세찬 게임 모집!", 
+        description="`!양세찬참가` 를 입력해주세요!\n자신의 이마에 붙은 제시어를 스무고개로 맞추는 게임입니다.", 
+        color=0xF1C40F
+    )
+    await ctx.send(embed=embed)
+
+@bot.command(name="양세찬참가")
+async def ysc_join(ctx):
+    game = yangsechan_games.get(ctx.guild.id)
+    if not game or game["status"] != "recruiting":
+        return await ctx.send("❌ 현재 모집 중인 양세찬 게임이 없습니다. `!양세찬모집`을 먼저 입력해주세요.", delete_after=10)
+    if ctx.author in game["players"]:
+        return await ctx.send("❌ 이미 참가하셨습니다.", delete_after=10)
+        
+    game["players"].append(ctx.author)
+    await ctx.send(f"✅ **{ctx.author.display_name}**님 양세찬 게임 참가 완료! (현재 인원: {len(game['players'])}명)")
+
+@bot.command(name="양세찬시작")
+async def ysc_start(ctx):
+    game = yangsechan_games.get(ctx.guild.id)
+    if not game or game["status"] != "recruiting":
+        return await ctx.send("❌ 시작할 게임 로비가 없습니다.", delete_after=10)
+    
+    players = game["players"]
+    if len(players) < 2:
+        return await ctx.send("❌ 인원이 부족합니다! 최소 2명이 필요합니다.", delete_after=10)
+        
+    game["status"] = "playing"
+    game["winners"] = []
+    
+    # 단어 풀에서 인원수만큼 랜덤 추출
+    selected_words = random.sample(YANGSECHAN_WORDS, len(players))
+    game["words"] = {p.id: w for p, w in zip(players, selected_words)}
+    
+    embed = discord.Embed(
+        title="🙈 양세찬 게임 시작!", 
+        description="아래 버튼을 눌러 **다른 사람의 제시어**를 확인하세요!\n내 버튼을 누르면 볼 수 없도록 방어되어 있습니다.\n질문을 통해 자신의 제시어를 유추하고 맞췄다면 `🎉 내 정답 맞춤!` 버튼을 누르세요.", 
+        color=0xF1C40F
+    )
+    
+    await ctx.send(embed=embed, view=YangSeChanView(game))
+
+# =========================
 # 🎨 로아 스티커 (전체 맵 복원)
 # =========================
 STICKER_MAP = {
