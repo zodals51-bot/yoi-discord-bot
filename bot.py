@@ -665,7 +665,7 @@ async def clear_messages(ctx, count: int = 10):
 
 
 # =========================
-# 🎲 디스코드판 '티카투카' 보드게임 규칙 구현 (!티카투카)
+# 🎲 디스코드판 '티카투카' 보드게임 (!티카투카) - 알까기 연속 턴 공식 룰 적용
 # =========================
 class TikaTukaGameView(discord.ui.View):
     def __init__(self, p1, p2):
@@ -674,16 +674,17 @@ class TikaTukaGameView(discord.ui.View):
         self.p2 = p2
         self.current_player = p1
         
-        # 보드 구조: { user_id: [ [줄1], [줄2], [줄3] ] }
         self.board = {
-            p1.id: [[], [], []], # 왼쪽 보드 (p1)
-            p2.id: [[], [], []]  # 오른쪽 보드 (p2)
+            p1.id: [[], [], []], 
+            p2.id: [[], [], []]
         }
         
         self.current_dice = random.randint(1, 6)
-        self.is_shield_dice = True # 첫 시작은 실드 주사위
+        # 매 턴마다 기본적으로 25% 확률로 실드 주사위 등장
+        self.is_shield_dice = random.random() < 0.25 
         
         self.reroll_counts = {p1.id: 1, p2.id: 1}
+        self.message = "게임 시작! 일반 주사위는 내 보드에만, 실드 주사위는 양쪽 모두 배치 가능합니다."
 
     def calc_score(self, col):
         if not col: return 0
@@ -691,6 +692,7 @@ class TikaTukaGameView(discord.ui.View):
         vals = [d["val"] for d in col]
         for num in set(vals):
             count = vals.count(num)
+            # 같은 숫자 겹칠 경우 보너스 점수: (주사위 눈 * 개수) * 개수
             score += (num * count) * count
         return score
 
@@ -704,7 +706,12 @@ class TikaTukaGameView(discord.ui.View):
         )
         
         dice_type_str = "🛡️ [실드 주사위]" if self.is_shield_dice else "🎲 [일반 주사위]"
-        embed.description = f"🔔 현재 턴: **{self.current_player.mention} 님의 차례입니다!**\n나온 주사위: {dice_type_str} **[ {self.current_dice} ]**"
+        
+        desc = f"🔔 현재 턴: **{self.current_player.mention} 님의 차례입니다!**\n"
+        desc += f"나온 주사위: {dice_type_str} **[ {self.current_dice} ]**\n"
+        if self.message:
+            desc += f"\n> {self.message}\n"
+        embed.description = desc
         
         for player in [self.p1, self.p2]:
             total_score = 0
@@ -723,6 +730,8 @@ class TikaTukaGameView(discord.ui.View):
                 board_text += f"{i+1}번 줄 ({c_score}점): {' '.join(display_col)}\n"
                 
             side = "왼쪽 (나)" if player == self.p1 else "오른쪽 (상대)"
+            if player == self.current_player:
+                side += " ◀ (현재 턴)"
             embed.add_field(
                 name=f"👤 {player.display_name} [{side}] - 총점: {total_score}점",
                 value=f"```\n{board_text}```",
@@ -731,7 +740,7 @@ class TikaTukaGameView(discord.ui.View):
             
         return embed
 
-    async def check_game_end_or_skip(self, interaction):
+    async def check_game_end(self, interaction):
         p1_full = self.is_board_full(self.p1.id)
         p2_full = self.is_board_full(self.p2.id)
         
@@ -741,6 +750,7 @@ class TikaTukaGameView(discord.ui.View):
             p1_total = sum([self.calc_score(c) for c in self.board[self.p1.id]])
             p2_total = sum([self.calc_score(c) for c in self.board[self.p2.id]])
             
+            # 각 줄마다 승패 계산 (공식 룰 적용)
             for i in range(3):
                 s1 = self.calc_score(self.board[self.p1.id][i])
                 s2 = self.calc_score(self.board[self.p2.id][i])
@@ -748,43 +758,41 @@ class TikaTukaGameView(discord.ui.View):
                 elif s2 > s1: p2_wins += 1
                 
             winner_text = ""
-            if p1_wins >= 2: winner_text = f"🎉 승자: **{self.p1.display_name}** (줄 승수 우세)"
-            elif p2_wins >= 2: winner_text = f"🎉 승자: **{self.p2.display_name}** (줄 승수 우세)"
+            # 승리 조건: 3개의 줄 중 2개 줄 이상에서 이긴 플레이어
+            if p1_wins >= 2: 
+                winner_text = f"🎉 승자: **{self.p1.display_name}** (줄 승리 우세: {p1_wins} vs {p2_wins})"
+            elif p2_wins >= 2: 
+                winner_text = f"🎉 승자: **{self.p2.display_name}** (줄 승리 우세: {p2_wins} vs {p1_wins})"
             else:
-                if p1_total > p2_total: winner_text = f"🎉 승자: **{self.p1.display_name}** (총점 합산 우세)"
-                elif p2_total > p1_total: winner_text = f"🎉 승자: **{self.p2.display_name}** (총점 합산 우세)"
-                else: winner_text = "🤝 무승부입니다!"
+                # 총점 동점: 승리한 줄의 개수가 같을 경우 총점 비교
+                if p1_total > p2_total: 
+                    winner_text = f"🎉 승자: **{self.p1.display_name}** (줄 동률, 총점 우세: {p1_total} vs {p2_total})"
+                elif p2_total > p1_total: 
+                    winner_text = f"🎉 승자: **{self.p2.display_name}** (줄 동률, 총점 우세: {p2_total} vs {p1_total})"
+                else: 
+                    winner_text = "🤝 완벽한 무승부입니다!"
                 
             end_embed = discord.Embed(title="🏁 티카투카 게임 종료!", description=winner_text, color=0x2ECC71)
             for ch in self.children: ch.disabled = True
             await interaction.response.edit_message(embed=end_embed, view=self)
             return True
-            
-        # 턴 전환 대상 설정
-        next_player = self.p2 if self.current_player == self.p1 else self.p1
-        
-        # 보드가 가득 찬 플레이어는 턴 자동 스킵 처리
-        if self.is_board_full(next_player.id):
-            # 상대 보드도 꽉 찼는지 위에서 체크했으므로 여기서는 한쪽만 찼을 때 원래 플레이어가 계속 진행
-            pass
-        else:
-            self.current_player = next_player
-            
         return False
 
-    @discord.ui.button(label="1번 줄 배치", style=discord.ButtonStyle.primary, row=0)
-    async def col_1(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await self.handle_placement(interaction, 0)
+    @discord.ui.button(label="내 보드 1번", style=discord.ButtonStyle.primary, row=0)
+    async def my_col_1(self, interaction: discord.Interaction, button: discord.ui.Button): await self.handle_placement(interaction, True, 0)
+    @discord.ui.button(label="내 보드 2번", style=discord.ButtonStyle.primary, row=0)
+    async def my_col_2(self, interaction: discord.Interaction, button: discord.ui.Button): await self.handle_placement(interaction, True, 1)
+    @discord.ui.button(label="내 보드 3번", style=discord.ButtonStyle.primary, row=0)
+    async def my_col_3(self, interaction: discord.Interaction, button: discord.ui.Button): await self.handle_placement(interaction, True, 2)
 
-    @discord.ui.button(label="2번 줄 배치", style=discord.ButtonStyle.primary, row=0)
-    async def col_2(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await self.handle_placement(interaction, 1)
+    @discord.ui.button(label="상대 보드 1번", style=discord.ButtonStyle.danger, row=1)
+    async def opp_col_1(self, interaction: discord.Interaction, button: discord.ui.Button): await self.handle_placement(interaction, False, 0)
+    @discord.ui.button(label="상대 보드 2번", style=discord.ButtonStyle.danger, row=1)
+    async def opp_col_2(self, interaction: discord.Interaction, button: discord.ui.Button): await self.handle_placement(interaction, False, 1)
+    @discord.ui.button(label="상대 보드 3번", style=discord.ButtonStyle.danger, row=1)
+    async def opp_col_3(self, interaction: discord.Interaction, button: discord.ui.Button): await self.handle_placement(interaction, False, 2)
 
-    @discord.ui.button(label="3번 줄 배치", style=discord.ButtonStyle.primary, row=0)
-    async def col_3(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await self.handle_placement(interaction, 2)
-
-    @discord.ui.button(label="🔄 리롤권 사용", style=discord.ButtonStyle.secondary, row=1)
+    @discord.ui.button(label="🔄 리롤권 사용", style=discord.ButtonStyle.secondary, row=2, custom_id="btn_reroll")
     async def use_reroll(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.user.id != self.current_player.id:
             return await interaction.response.send_message("❌ 당신의 턴이 아닙니다!", ephemeral=True)
@@ -793,59 +801,99 @@ class TikaTukaGameView(discord.ui.View):
             
         self.reroll_counts[self.current_player.id] -= 1
         old_dice = self.current_dice
-        new_dice = random.randint(1, 6)
-        self.current_dice = new_dice
+        self.current_dice = random.randint(1, 6)
         
-        await interaction.response.send_message(f"🎲 리롤 결과: 기존 **[{old_dice}]** ➜ 새 주사위 **[{new_dice}]**! 원하는 줄에 배치하세요.", ephemeral=True)
-        await interaction.message.edit(embed=self.generate_embed(), view=self)
+        self.message = f"🔄 리롤 사용! 기존 [{old_dice}] ➜ 새 주사위 **[{self.current_dice}]**"
+        
+        for child in self.children:
+            if getattr(child, "custom_id", "") == "btn_reroll":
+                child.label = f"🔄 리롤권 사용 (남음: {self.reroll_counts[self.current_player.id]})"
+                child.disabled = self.reroll_counts[self.current_player.id] <= 0
+                break
+                
+        await interaction.response.edit_message(embed=self.generate_embed(), view=self)
 
-    async def handle_placement(self, interaction: discord.Interaction, col_idx: int):
+    async def handle_placement(self, interaction: discord.Interaction, is_mine: bool, col_idx: int):
         if interaction.user.id != self.current_player.id:
             return await interaction.response.send_message("❌ 당신의 턴이 아닙니다!", ephemeral=True)
             
-        # 1. 숫자 크기 및 배치 규칙 적용 (낮은 숫자 1~3이면 상대방 보드, 높은 숫자 4~6이면 내 보드)
-        # 단, 실드 주사위이거나 일반 주사위에 따라 선택권 부여
-        target_player = self.current_player
-        if not self.is_shield_dice and self.current_dice <= 3:
-            # 낮은 숫자일 경우 상대방 보드에 놓을 수 있음
-            target_player = self.p2 if self.current_player == self.p1 else self.p1
+        # 일반 주사위는 오직 '자신의 보드'에만 놓을 수 있음
+        if not is_mine and not self.is_shield_dice:
+            return await interaction.response.send_message("❌ 일반 주사위는 '내 보드'에만 배치할 수 있습니다!", ephemeral=True)
             
+        target_player = self.current_player if is_mine else (self.p2 if self.current_player == self.p1 else self.p1)
         target_col = self.board[target_player.id][col_idx]
         
         if len(target_col) >= 3:
             return await interaction.response.send_message("❌ 해당 줄은 이미 꽉 찼습니다! 다른 줄을 선택해 주세요.", ephemeral=True)
             
+        # 보드에 주사위 배치
         target_col.append({"val": self.current_dice, "is_shield": self.is_shield_dice})
+        self.message = ""
+        alkkagi_triggered = False
         
-        # 알까기 처리 (일반 주사위일 때만 작동)
-        if not self.is_shield_dice:
+        # 알까기 처리: 내가 "내 보드"에 주사위를 놓았을 때만 발동
+        if is_mine:
             opponent = self.p2 if self.current_player == self.p1 else self.p1
             opp_col = self.board[opponent.id][col_idx]
             
-            has_matching = any(d["val"] == self.current_dice and not d["is_shield"] for d in opp_col)
-            if has_matching:
-                self.board[opponent.id][col_idx] = [d for d in opp_col if not (d["val"] == self.current_dice and not d["is_shield"])]
-                self.is_shield_dice = True
-                await interaction.channel.send(f"⚔️ **알까기 발동!** {self.current_player.mention}님이 상대방 주사위를 파괴하고 **실드 주사위**를 획득했습니다!")
+            to_destroy = [d for d in opp_col if d["val"] == self.current_dice]
+            if to_destroy:
+                self.board[opponent.id][col_idx] = [d for d in opp_col if d["val"] != self.current_dice]
+                alkkagi_triggered = True
+                self.message = f"💥 **알까기 성공!** {opponent.display_name}님의 주사위를 파괴하고 🛡️ **실드 주사위**를 얻어 한 번 더 진행합니다!"
         
-        # 다음 주사위 준비
-        self.is_shield_dice = False
-        self.current_dice = random.randint(1, 6)
-            
-        if await self.check_game_end_or_skip(interaction):
+        if await self.check_game_end(interaction):
             return
             
-        # 턴 전환 후 멘션 알람과 함께 메시지 갱신
+        # 알까기 성공/실패 여부에 따른 턴 및 주사위 처리
+        if alkkagi_triggered:
+            # 턴이 넘어가지 않고 연속 진행, 실드 주사위 100% 획득
+            self.is_shield_dice = True
+            self.current_dice = random.randint(1, 6)
+        else:
+            # 알까기 발동 안 했으므로 정상적으로 턴 넘김
+            next_player = self.p2 if self.current_player == self.p1 else self.p1
+            
+            # 다음 플레이어의 보드가 꽉 찼으면 턴이 스킵되어 나에게 다시 돌아옴
+            if self.is_board_full(next_player.id):
+                self.message += f"\n⚠️ {next_player.display_name}님의 보드가 꽉 차서 턴이 스킵되었습니다!"
+                self.is_shield_dice = random.random() < 0.25
+                self.current_dice = random.randint(1, 6)
+            else:
+                self.current_player = next_player
+                # 다음 턴 주사위 세팅 (25% 확률로 실드 주사위 등장)
+                self.is_shield_dice = random.random() < 0.25
+                self.current_dice = random.randint(1, 6)
+
+        # 리롤권 텍스트 업데이트
+        for child in self.children:
+            if getattr(child, "custom_id", "") == "btn_reroll":
+                child.label = f"🔄 리롤권 사용 (남음: {self.reroll_counts[self.current_player.id]})"
+                child.disabled = self.reroll_counts[self.current_player.id] <= 0
+                break
+                
+        # 1. 채팅 도배 없이 게임판 메시지만 깔끔하게 갱신
         await interaction.response.edit_message(embed=self.generate_embed(), view=self)
-        await interaction.channel.send(f"🔔 {self.current_player.mention}님, 차례입니다!")
+        
+        # 2. 게임하는 유저에게만 알람(핑)을 울리게 하고, 3초 뒤 메시지 자동 삭제 (채팅방 도배 방지)
+        if alkkagi_triggered:
+            ping_msg = await interaction.channel.send(f"💥 {self.current_player.mention} 님, 알까기에 성공하여 연속 턴을 진행합니다!")
+        else:
+            ping_msg = await interaction.channel.send(f"🔔 {self.current_player.mention} 님, 차례입니다!")
+            
+        await ping_msg.delete(delay=3)
 
 @bot.command(name="티카투카")
 async def start_tikatuka(ctx, opponent: discord.Member):
     if opponent.bot or opponent == ctx.author:
         return await ctx.send("❌ 대결할 다른 길드원을 올바르게 멘션해 주세요!", delete_after=10)
     view = TikaTukaGameView(ctx.author, opponent)
-    msg = await ctx.send(embed=view.generate_embed(), view=view)
-    await ctx.send(f"🔔 {ctx.author.mention}님, 게임이 시작되었습니다! 첫 차례입니다!")
+    await ctx.send(embed=view.generate_embed(), view=view)
+    
+    # 첫 시작 핑도 울린 뒤 바로 지워지게 처리
+    ping_msg = await ctx.send(f"🔔 {ctx.author.mention}님, 게임이 시작되었습니다! 첫 차례입니다!")
+    await ping_msg.delete(delay=3)
 
 
 # =========================
