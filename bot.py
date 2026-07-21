@@ -7,6 +7,7 @@ import urllib.parse
 import asyncio
 from datetime import datetime
 from dotenv import load_dotenv
+import random  # 마피아 직업 랜덤 분배를 위해 추가됨
 
 load_dotenv()
 
@@ -778,6 +779,214 @@ async def clear_messages(ctx, count: int = 10):
 async def clear_messages_error(ctx, error):
     if isinstance(error, commands.MissingPermissions):
         await ctx.send("❌ 이 방의 메시지를 정리할 권한이 없습니다! (디스코드 '메시지 관리' 권한 필요)", delete_after=5)
+
+
+# =========================
+# 🕵️ 마피아 게임 시스템 (!마피아모집 등)
+# =========================
+mafia_games = {}
+player_guild_map = {}
+
+@bot.command(name="마피아모집")
+async def mafia_lobby(ctx):
+    mafia_games[ctx.guild.id] = {
+        "status": "recruiting",
+        "players": {},       
+        "alive": [],         
+        "votes": {},         
+        "night_actions": {"mafia": None, "doctor": None}, 
+        "channel": ctx.channel 
+    }
+    
+    embed = discord.Embed(
+        title="🕵️ 마피아 게임 모집 시작!",
+        description="`!참가` 를 입력해서 마피아 게임에 합류하세요!\n(최소 4명 이상 필요)",
+        color=0x2B2D31
+    )
+    await ctx.send(embed=embed)
+
+@bot.command(name="참가")
+async def mafia_join(ctx):
+    game = mafia_games.get(ctx.guild.id)
+    if not game or game["status"] != "recruiting":
+        return await ctx.send("❌ 현재 모집 중인 게임이 없습니다.")
+    if ctx.author in game["alive"]:
+        return await ctx.send("❌ 이미 참가하셨습니다.")
+        
+    game["alive"].append(ctx.author)
+    player_guild_map[ctx.author.id] = ctx.guild.id 
+    
+    await ctx.send(f"✅ **{ctx.author.display_name}**님 참가! (현재 {len(game['alive'])}명)")
+
+@bot.command(name="마피아시작")
+async def mafia_start(ctx):
+    game = mafia_games.get(ctx.guild.id)
+    if not game or game["status"] != "recruiting":
+        return await ctx.send("❌ 진행할 게임이 없습니다.")
+        
+    players = game["alive"]
+    # 💡 테스트를 위해 혼자 할 경우 4를 1로 변경하세요
+    if len(players) < 4:
+        return await ctx.send(f"❌ 인원이 부족합니다. (현재 {len(players)}명 / 최소 4명)")
+        
+    roles = ["마피아", "경찰", "의사"] + ["시민"] * (len(players) - 3)
+    random.shuffle(roles)
+    
+    for player, role in zip(players, roles):
+        game["players"][player.id] = role
+        try:
+            embed = discord.Embed(
+                title="당신의 직업이 배정되었습니다.",
+                description=f"당신의 직업은 **[{role}]** 입니다!\n\n밤이 되면 저에게 **개인 메시지(DM)**로\n`!능력 [대상닉네임]` 을 보내서 능력을 사용하세요!",
+                color=0xE74C3C if role == "마피아" else 0x3498DB
+            )
+            await player.send(embed=embed)
+        except:
+            await ctx.send(f"⚠️ {player.mention}님! DM이 막혀있어 직업을 보낼 수 없습니다. 디코 설정에서 DM을 허용해주세요!")
+            
+    game["status"] = "night"
+    
+    embed_night = discord.Embed(title="🌙 첫 번째 밤이 되었습니다.", description="봇이 보낸 DM을 확인하고 능력을 사용해 주세요!\n(마피아, 경찰, 의사만 행동합니다)", color=0x000000)
+    embed_night.set_footer(text="생존자 명단 확인: !생존자")
+    await ctx.send(embed=embed_night)
+
+@bot.command(name="능력")
+async def mafia_ability(ctx, target_name: str):
+    if ctx.guild is not None:
+        await ctx.send(f"⚠️ {ctx.author.mention}님! 능력 사용은 저에게 **개인 메시지(DM)**로 몰래 보내주세요!")
+        try:
+            await ctx.message.delete()
+        except:
+            pass
+        return
+        
+    guild_id = player_guild_map.get(ctx.author.id)
+    if not guild_id:
+        return await ctx.send("❌ 당신은 참여 중인 게임이 없습니다.")
+        
+    game = mafia_games.get(guild_id)
+    if not game or game["status"] != "night":
+        return await ctx.send("❌ 지금은 능력을 사용할 수 있는 밤이 아닙니다.")
+        
+    if ctx.author not in game["alive"]:
+        return await ctx.send("❌ 죽은 자는 능력을 쓸 수 없습니다 👻")
+        
+    role = game["players"][ctx.author.id]
+    target = discord.utils.get(game["alive"], display_name=target_name)
+    if not target:
+        alive_names = ", ".join([p.display_name for p in game["alive"]])
+        return await ctx.send(f"❌ '{target_name}'(을)를 찾을 수 없습니다.\n*현재 생존자: {alive_names}*")
+
+    if role == "마피아":
+        game["night_actions"]["mafia"] = target
+        await ctx.send(f"🔪 은밀하게 '{target.display_name}'님을 암살 대상으로 지목했습니다.")
+    elif role == "의사":
+        game["night_actions"]["doctor"] = target
+        await ctx.send(f"💉 오늘 밤 '{target.display_name}'님을 치료 대상으로 지목했습니다.")
+    elif role == "경찰":
+        target_role = game["players"][target.id]
+        is_mafia = "🔴 **마피아입니다!**" if target_role == "마피아" else "🟢 **마피아가 아닙니다.**"
+        await ctx.send(f"👮 삐빅- '{target.display_name}'님의 정체를 확인했습니다: {is_mafia}")
+        return 
+    else:
+        return await ctx.send("👤 당신은 평범한 시민입니다. 얌전히 아침을 기다리세요.")
+        
+    mafia_alive = any(game["players"][p.id] == "마피아" for p in game["alive"])
+    doctor_alive = any(game["players"][p.id] == "의사" for p in game["alive"])
+    mafia_acted = not mafia_alive or game["night_actions"]["mafia"] is not None
+    doctor_acted = not doctor_alive or game["night_actions"]["doctor"] is not None
+    
+    if mafia_acted and doctor_acted:
+        await process_morning(guild_id)
+
+async def process_morning(guild_id):
+    game = mafia_games[guild_id]
+    channel = game["channel"]
+    game["status"] = "day"
+    
+    killed = game["night_actions"]["mafia"]
+    healed = game["night_actions"]["doctor"]
+    game["night_actions"] = {"mafia": None, "doctor": None}
+    
+    if killed and killed != healed:
+        game["alive"].remove(killed)
+        await channel.send(f"🌅 **아침이 밝았습니다.**\n참혹한 밤이었습니다... **{killed.display_name}**님이 마피아에게 살해당했습니다. 💀")
+    else:
+        await channel.send("🌅 **아침이 밝았습니다.**\n지난 밤은 아무 일도 없이 평화로웠습니다! (마피아의 공격을 의사가 막아냈거나 마피아가 행동하지 않았습니다.)")
+        
+    if await check_victory(guild_id): return
+        
+    game["votes"] = {}
+    await channel.send(f"🗣️ **낮 토론을 시작합니다!** 자유롭게 마피아를 추리하고 의심되는 사람에게 투표하세요.\n사용법: `!투표 [닉네임]`\n(투표를 마치려면 `!투표종료` 입력)")
+
+@bot.command(name="생존자")
+async def show_alive(ctx):
+    game = mafia_games.get(ctx.guild.id)
+    if not game: return await ctx.send("❌ 진행 중인 게임이 없습니다.")
+    alive_names = ", ".join([p.display_name for p in game["alive"]])
+    await ctx.send(f"👤 **현재 생존자 ({len(game['alive'])}명):** {alive_names}")
+
+@bot.command(name="투표")
+async def mafia_vote(ctx, target_name: str):
+    game = mafia_games.get(ctx.guild.id)
+    if not game or game["status"] != "day":
+        return await ctx.send("❌ 지금은 투표 시간이 아닙니다.")
+    if ctx.author not in game["alive"]:
+        return await ctx.send("❌ 죽은 자는 투표권이 없습니다 👻")
+        
+    target = discord.utils.get(game["alive"], display_name=target_name)
+    if not target:
+        return await ctx.send(f"❌ '{target_name}'(을)를 찾을 수 없습니다. 닉네임을 정확히 입력하세요.")
+        
+    game["votes"][ctx.author.id] = target
+    await ctx.send(f"🗳️ **{ctx.author.display_name}**님이 **{target.display_name}**님을 사형대에 올렸습니다.")
+
+@bot.command(name="투표종료")
+async def mafia_vote_end(ctx):
+    game = mafia_games.get(ctx.guild.id)
+    if not game or game["status"] != "day":
+        return await ctx.send("❌ 진행 중인 투표가 없습니다.")
+        
+    votes = list(game["votes"].values())
+    if not votes:
+        await ctx.send("투표한 사람이 아무도 없어 평화롭게 밤이 됩니다.")
+        game["status"] = "night"
+        return await ctx.send("🌙 **밤이 되었습니다.** 마피아, 의사, 경찰은 봇 DM으로 능력을 사용해 주세요!")
+        
+    vote_counts = {target: votes.count(target) for target in set(votes)}
+    max_votes = max(vote_counts.values())
+    candidates = [t for t, c in vote_counts.items() if c == max_votes]
+    
+    if len(candidates) > 1:
+        await ctx.send("⚖️ 동률 득표자가 발생하여 아무도 처형되지 않고 밤이 됩니다.")
+    else:
+        executed = candidates[0]
+        game["alive"].remove(executed)
+        role = game["players"][executed.id]
+        await ctx.send(f"⚖️ 투표 결과, 최다 득표자 **{executed.display_name}**님이 사형당했습니다!\n그의 정체는... **[{role}]** 이었습니다!")
+        
+    if await check_victory(ctx.guild.id): return
+        
+    game["status"] = "night"
+    await ctx.send("🌙 **밤이 되었습니다.** 봇 DM으로 능력을 사용해 주세요!")
+
+async def check_victory(guild_id):
+    game = mafia_games[guild_id]
+    mafias = [p for p in game["alive"] if game["players"][p.id] == "마피아"]
+    citizens = [p for p in game["alive"] if game["players"][p.id] != "마피아"]
+    
+    channel = game["channel"]
+    
+    if len(mafias) == 0:
+        await channel.send("🎉 **[ 게임 종료 - 시민 팀 승리! ]** 🎉\n마피아를 모두 소탕하여 도시에 평화가 찾아왔습니다!")
+        del mafia_games[guild_id]
+        return True
+    elif len(mafias) >= len(citizens):
+        await channel.send("🔪 **[ 게임 종료 - 마피아 팀 승리! ]** 🔪\n마피아의 수가 시민과 같아지거나 넘었습니다. 마피아가 도시를 장악했습니다!")
+        del mafia_games[guild_id]
+        return True
+        
+    return False
 
 
 # =========================
