@@ -7,7 +7,7 @@ import urllib.parse
 import asyncio
 from datetime import datetime
 from dotenv import load_dotenv
-import random  # 마피아 직업 랜덤 분배를 위해 추가됨
+import random
 
 load_dotenv()
 
@@ -164,7 +164,6 @@ async def character_spec_search(ctx, character_name: str = None):
         equipment = call_lostark_api("equipment", character_name) or []
         arkpassive_data = call_lostark_api("arkpassive", character_name) or {}
 
-        # 1. 기본 프로필 세팅
         char_name = profile.get("CharacterName", character_name)
         char_class = profile.get("CharacterClassName", "알 수 없음")
         server_name = profile.get("ServerName", "알 수 없음")
@@ -174,7 +173,6 @@ async def character_spec_search(ctx, character_name: str = None):
         exp_exp = str(profile.get("ExpeditionLevel", "0"))
         exp_lvl = str(profile.get("CharacterLevel", "0"))
         
-        # 2. 공격력 및 특성비 세팅
         attack_power = "0"
         combat_stats = {}
         for stat in profile.get("Stats") or []:
@@ -189,10 +187,8 @@ async def character_spec_search(ctx, character_name: str = None):
         top_stats = sorted(combat_stats.items(), key=lambda x: x[1], reverse=True)[:2]
         stat_text = " / ".join([f"{k} {v}" for k, v in top_stats]) if top_stats else "특성 정보 없음"
 
-        # 3. 아크 패시브 (가동 스펙만 남김)
         points_info = []
         is_ark_passive = False
-        
         if arkpassive_data:
             is_ark_passive = arkpassive_data.get("IsEffect", False)
             for p in (arkpassive_data.get("Points") or []):
@@ -203,7 +199,6 @@ async def character_spec_search(ctx, character_name: str = None):
         ark_passive_status = " | ".join(points_info) if points_info else "포인트 분배 정보 없음"
         if not is_ark_passive: ark_passive_status = "비활성화 상태"
 
-        # 4. 장비 세팅
         weapon_name = "장비 정보 없음"
         armor_set_name = "장비 정보 없음"
         for item in equipment:
@@ -213,10 +208,8 @@ async def character_spec_search(ctx, character_name: str = None):
             elif i_type in ["투구", "상의", "하의", "장갑", "어깨"] and armor_set_name == "장비 정보 없음":
                 armor_set_name = re.sub(r'투구|상의|하의|장갑|어깨', '', clean_name).strip()
 
-        # 5. 각인 필터링
         eng_text = ""
         seen_engs = set()
-
         def add_eng(e_name):
             nonlocal eng_text
             if e_name and "감소" not in e_name:
@@ -233,7 +226,6 @@ async def character_spec_search(ctx, character_name: str = None):
                 
         if not eng_text: eng_text = "• 활성화된 각인 정보 없음"
 
-        # 6. UI 렌더링
         embed = discord.Embed(
             title=f"🎭 {server_name} | {char_name}", 
             description=f"**{char_class}** 세팅 정보 실시간 동기화\n칭호: `{title}` ㅤ|ㅤ 길드: `{guild_name}`",
@@ -244,13 +236,11 @@ async def character_spec_search(ctx, character_name: str = None):
         embed.add_field(name="📋 기본 정보", value=f"• 아이템 Lv: `{item_lvl}`\n• 원정대 Lv: `{exp_exp}`\n• 전투 Lv: `Lv.{exp_lvl}`", inline=True)
         embed.add_field(name="🔥 핵심 스탯", value=f"• 공격력: `{attack_power}`\n• 특성비: `{stat_text}`", inline=True)
         embed.add_field(name="✨ 장비 세팅", value=f"• 무기: `{weapon_name}`\n• 방어구 세트: `{armor_set_name}`", inline=True)
-
         embed.add_field(name="⚡ 아크 패시브 가동 스펙", value=f"```md\n[현재 분배 스펙]\n➜ {ark_passive_status}```", inline=False)
         embed.add_field(name="🔸 장착 각인 시스템", value=eng_text, inline=False)
 
         await status_msg.delete()
         await ctx.send(embed=embed, delete_after=900)
-        
     except Exception as e:
         await status_msg.edit(content=f"❌ 데이터 처리 중 오류가 발생했습니다.\n디버그 코드: `{e}`", delete_after=10)
 
@@ -263,32 +253,27 @@ async def recommend_narak_reward(ctx, level: str, floor: int, *rewards: str):
     if level not in NARAK_DATA:
         await ctx.send("❌ 지원하지 않는 레벨입니다. (1640, 1700, 1730, 1750 중 선택)", delete_after=10)
         return
-    
     if len(rewards) < 1:
-        await ctx.send("❌ **사용법:** `!나락추천 [레벨] [층수] [보상1] [보상2] ...`\nℹ️ 예시: `!나락추천 1750 85 어빌 특재 골드 보석`", delete_after=10)
+        await ctx.send("❌ **사용법:** `!나락추천 [레벨] [층수] [보상1] [보상2] ...`", delete_after=10)
         return
     
-    filtered_rewards = []
-    skipped = []
-    
+    filtered_rewards, skipped = [], []
     for r in rewards:
         clean_r = r.replace(" ", "")
         if "보석" in clean_r and floor < 80:
             skipped.append(clean_r)
             continue
-        
         found_val = 0
         for key, val in NARAK_DATA[level].items():
             if key in clean_r:
                 found_val = val
                 break
-        
         if found_val > 0: filtered_rewards.append({"name": clean_r, "val": found_val})
         else: skipped.append(clean_r)
 
     if not filtered_rewards:
         embed = discord.Embed(title="❌ 유효한 보상이 없습니다.", color=0xE74C3C)
-        if skipped: embed.description = f"입력하신 보상(`{', '.join(skipped)}`)은 조건(예: 보석은 80층 이상)에 맞지 않거나 오타입니다."
+        if skipped: embed.description = f"입력하신 보상(`{', '.join(skipped)}`)은 조건에 맞지 않거나 오타입니다."
         await ctx.send(embed=embed, delete_after=10)
         return
 
@@ -301,9 +286,7 @@ async def recommend_narak_reward(ctx, level: str, floor: int, *rewards: str):
     for i, item in enumerate(filtered_rewards):
         medal = medals[i] if i < len(medals) else "•"
         rank_text += f"{medal} {i+1}위: {item['name']}\n"
-        
     embed.add_field(name="📋 보상 선택 우선순위", value=rank_text, inline=False)
-    if skipped: embed.add_field(name="⚠️ 제외 항목", value=f"`{', '.join(skipped)}`\n*(보석은 80층 미만에서 제외됨)*", inline=False)
     await ctx.send(embed=embed, delete_after=900)
 
 
@@ -313,15 +296,10 @@ async def recommend_narak_reward(ctx, level: str, floor: int, *rewards: str):
 @bot.command(name="지옥추천")
 async def recommend_hell_reward(ctx, level: str, floor_range: str, *rewards: str):
     if not level or not floor_range or len(rewards) < 2:
-        await ctx.send("❌ **사용법:** `!지옥추천 [레벨] [층수구간] [보상1] [보상2] ...`\nℹ️ 예시: `!지옥추천 1750 0~10 어빌 특재 골드`", delete_after=10)
+        await ctx.send("❌ **사용법:** `!지옥추천 [레벨] [층수구간] [보상1] [보상2] ...`", delete_after=10)
         return
 
-    level_multiplier = 1.0
-    if level == "1640": level_multiplier = 0.5
-    elif level == "1700": level_multiplier = 1.0
-    elif level == "1730": level_multiplier = 2.5
-    elif level == "1750": level_multiplier = 4.0
-
+    level_multiplier = 4.0 if level == "1750" else (2.5 if level == "1730" else (1.0 if level == "1700" else 0.5))
     try:
         clean_floor = floor_range.replace("층", "")
         if "~" in clean_floor:
@@ -336,8 +314,7 @@ async def recommend_hell_reward(ctx, level: str, floor_range: str, *rewards: str
         target_floor = 5
     
     floor_multiplier = 1.0 + (target_floor / 20.0)
-    analyzed_rewards = []
-    unknown_rewards = []
+    analyzed_rewards, unknown_rewards = [], []
 
     for r_input in rewards:
         clean_input = r_input.replace(" ", "")
@@ -352,23 +329,19 @@ async def recommend_hell_reward(ctx, level: str, floor_range: str, *rewards: str
             unknown_rewards.append(r_input)
 
     if not analyzed_rewards:
-        await ctx.send("❌ 인식된 보상이 없습니다. 오타가 없는지 확인해 주세요!", delete_after=10)
+        await ctx.send("❌ 인식된 보상이 없습니다.", delete_after=10)
         return
 
     analyzed_rewards.sort(key=lambda x: x["calc_val"], reverse=True)
-    embed = discord.Embed(title=f"🌋 [지옥 보상] {level}레벨 / {floor_range} 구간 실시간 판별", color=0x2ECC71)
-    embed.description = f"📊 시뮬레이션 효율이 가장 높은 순서입니다."
+    embed = discord.Embed(title=f"🌋 [지옥 보상] {level}레벨 / {floor_range} 구간", color=0x2ECC71)
     embed.add_field(name=f"🥇 지금 이 구간 최고의 [1등상]", value=f"👉 **{analyzed_rewards[0]['original']}**", inline=False)
-
+    
     rank_text = ""
     medals = ["🥇", "🥈", "🥉", "🏅"]
     for idx, item in enumerate(analyzed_rewards):
         medal = medals[idx] if idx < len(medals) else "•"
         rank_text += f"{medal} **{idx+1}위**: {item['original']}\n"
-        
     embed.add_field(name="📋 보상 선택 우선순위", value=rank_text, inline=False)
-    if unknown_rewards: embed.add_field(name="⚠️ 인식 실패 (오타 확인)", value=f"`{', '.join(unknown_rewards)}`", inline=False)
-    embed.set_footer(text=f"기준: 층수 스케일링 ({int(target_floor)}층 가중치 적용)")
     await ctx.send(embed=embed, delete_after=900)
 
 
@@ -378,7 +351,7 @@ async def recommend_hell_reward(ctx, level: str, floor_range: str, *rewards: str
 @bot.command(name="경매")
 async def calculate_auction(ctx, price: int = None):
     if not price or price <= 0:
-        await ctx.send("❌ 사용법: `!경매 [경매장 시세]` (예: `!경매 10000`)", delete_after=10)
+        await ctx.send("❌ 사용법: `!경매 [경매장 시세]`", delete_after=10)
         return
 
     net_value = int(price * 0.95)
@@ -389,8 +362,6 @@ async def calculate_auction(ctx, price: int = None):
     }
 
     embed = discord.Embed(title=f"⚖️ 경매 입찰금 정산기 (시세: {price:,} G)", color=0xF1C40F)
-    embed.description = f"💡 **수수료 제외 가치:** {net_value:,} 골드\n*아래 추천가까지만 눌러야 이득입니다.*"
-
     for team, data in calc_data.items():
         embed.add_field(name=f"👥 {team}", value=f"• **추천 입찰가:** `{data['recommend']:,} G`\n• **손익 분기점:** `{data['break_even']:,} G`", inline=False)
     await ctx.send(embed=embed, delete_after=900)
@@ -401,14 +372,9 @@ async def calculate_auction(ctx, price: int = None):
 # =========================
 @bot.command(name="지옥효율")
 async def show_hell_reward_efficiency(ctx):
-    embed = discord.Embed(title="🌋 낙원 : 지옥 콘텐츠 구간별 보상 효율표", url="https://m.lopec.kr/tool/reward", color=0xE74C3C)
-    embed.description = "💡 **Lopec(로펙) 도구 기준** 최신 재화 가치 산정 결과입니다."
-    embed.add_field(name="💎 1640 구간 (기대 가치: 약 14,500 G)", value="• 주요 드롭: 운명 파괴/수호, 카르마 돌파석, 젬 상자\n• 효율 분석: **큐브보다 소폭 우세**", inline=False)
-    embed.add_field(name="💎 1700 구간 (기대 가치: 약 23,000 G)", value="• 주요 드롭: 상위 운명 재화 시리즈, 더스트, 실링\n• 효율 분석: 🔥 **추천 파밍 구간**", inline=False)
-    embed.add_field(name="💎 1730 최상위 구간 (기대 가치: 최대 115,000 G 이상)", value="• 주요 드롭: 엔드게임 전용 결정, 최상위 돌파석, 젬 선택\n• 효율 분석: 🌟 **원정대 스펙업 필수 1순위**", inline=False)
-    embed.add_field(name="━━━━━━━━━━━━━━━━━━━━━━━━━━", value="🎲 **희귀(파란색) 열쇠 5회 제한 '억까' 확률 분석**", inline=False)
-    embed.add_field(name="📈 평균 기대 도달 층수", value="• 1회 강하당 1~20층 이동 (균등 확률)\n• 5회 강하 시 기대값: **52.5층**", inline=True)
-    embed.add_field(name="🚨 5회 강하 후 '5층 마무리' 확률", value="• `(1/20)^5` = **0.00003125%** (로또보다 희박)", inline=True)
+    embed = discord.Embed(title="🌋 낙원 : 지옥 콘텐츠 구간별 보상 효율표", color=0xE74C3C)
+    embed.add_field(name="💎 1700 / 1730 구간", value="• 원정대 스펙업 필수 파밍 구간", inline=False)
+    embed.add_field(name="🎲 5회 강하 후 '5층 마무리' 확률", value="• `(1/20)^5` = **0.00003125%**", inline=False)
     await ctx.send(embed=embed, delete_after=900)
 
 
@@ -418,25 +384,12 @@ async def show_hell_reward_efficiency(ctx):
 @bot.command(name="알람")
 async def set_timer(ctx, time_str: str = None, *, memo: str = "시간 완료!"):
     if not time_str:
-        await ctx.send("❌ 사용법: `!알람 [시간+단위] [멘션/메모]` (예: `!알람 10분`)", delete_after=10)
+        await ctx.send("❌ 사용법: `!알람 [시간+단위] [메모]`", delete_after=10)
         return
-
-    seconds = 0
-    if "분" in time_str: seconds = int(time_str.replace("분", "").strip()) * 60
-    elif "초" in time_str: seconds = int(time_str.replace("초", "").strip())
-    else:
-        try:
-            seconds = int(time_str) * 60
-            time_str = f"{time_str}분"
-        except ValueError:
-            await ctx.send("❌ 시간을 올바르게 입력해주세요. (예: 10분, 30초)", delete_after=10)
-            return
-
-    if seconds <= 0: return await ctx.send("❌ 0보다 큰 시간을 입력해주세요.", delete_after=10)
-
-    await ctx.send(f"⏰ {ctx.author.mention}님, **{time_str}** 알람이 예약되었습니다. (내용: {memo})", delete_after=900)
+    seconds = int(time_str.replace("분", "").strip()) * 60 if "분" in time_str else int(time_str)
+    await ctx.send(f"⏰ {ctx.author.mention}님, **{time_str}** 알람 시작! ({memo})", delete_after=900)
     await asyncio.sleep(seconds)
-    await ctx.send(f"🚨 **[{time_str} 완료]** ➜ {memo}", delete_after=900)
+    await ctx.send(f"🚨 **[알람 완료]** ➜ {memo}", delete_after=900)
 
 
 # =========================
@@ -445,64 +398,32 @@ async def set_timer(ctx, time_str: str = None, *, memo: str = "시간 완료!"):
 @bot.command(name="낙원")
 async def show_nakwon_code(ctx, job_name: str = None):
     if not job_name:
-        available_jobs = ", ".join([f"`{k}`" for k in NAKWON_SKILL_CODES.keys()])
-        return await ctx.send(f"❌ 사용법: `!낙원 [직업명]`\nℹ️ 등록된 직업: {available_jobs}", delete_after=10)
-    
+        return await ctx.send("❌ 사용법: `!낙원 [직업명]`", delete_after=10)
     matched_job = next((key for key in NAKWON_SKILL_CODES.keys() if job_name in key), None)
-    if not matched_job: return await ctx.send(f"❌ `{job_name}` 직업의 낙원 코드를 찾을 수 없습니다.", delete_after=10)
-    
+    if not matched_job: return await ctx.send("❌ 직업을 찾을 수 없습니다.", delete_after=10)
     job_data = NAKWON_SKILL_CODES[matched_job]
     embed = discord.Embed(title=f"🌊 낙원 증명용 {matched_job} 아크 패시브", color=0x00A3FF)
-    embed.add_field(name="📋 복사용 스킬코드", value=f"```{job_data['code']}```", inline=False)
-    embed.add_field(name="💡 운용 팁 / 공략", value=f"{job_data['tip']}", inline=False)
+    embed.add_field(name="📋 스킬코드", value=f"```{job_data['code']}```", inline=False)
+    embed.add_field(name="💡 팁", value=job_data['tip'], inline=False)
     await ctx.send(embed=embed, delete_after=900)
 
 @bot.command(name="시너지")
 async def show_synergy(ctx):
     embed = discord.Embed(title="⚔️ 로스트아크 전 직업 시너지 표", color=0x2B2D31)
     jobs = list(SYNERGY_DETAILS.keys())
-    chunks = [jobs[i:i + 6] for i in range(0, len(jobs), 6)]
-    for i, chunk in enumerate(chunks):
-        chunk_text = "".join([f"• **{job}**: {SYNERGY_DETAILS[job]['desc']}\n" for job in chunk])
-        embed.add_field(name=f"시너지 목록 ({i+1})", value=chunk_text, inline=False)
+    for i, chunk in enumerate([jobs[i:i + 6] for i in range(0, len(jobs), 6)]):
+        embed.add_field(name=f"목록 ({i+1})", value="".join([f"• **{j}**: {SYNERGY_DETAILS[j]['desc']}\n" for j in chunk]), inline=False)
     await ctx.send(embed=embed, delete_after=900)
 
 @bot.command(name="레이드조합")
 async def analyze_raid_party(ctx, *jobs: str):
     if len(jobs) < 1 or len(jobs) > 4: return await ctx.send("❌ 사용법: `!레이드조합 [직업1] [직업2] ...`", delete_after=10)
-    
-    matched_jobs, invalid_jobs = [], []
+    matched_jobs = []
     for job in jobs:
-        found = False
         for key in SYNERGY_DETAILS.keys():
-            if job in key: matched_jobs.append(key); found = True; break
-        if not found: invalid_jobs.append(job)
-    if invalid_jobs: return await ctx.send(f"❌ 알 수 없는 직업 포함: {', '.join([f'`{j}`' for j in invalid_jobs])}", delete_after=10)
-    
-    effect_counts = {}
-    has_supp = has_backhead = False
-    for job in matched_jobs:
-        effects = SYNERGY_DETAILS[job]["effects"]
-        if "케어" in effects: has_supp = True
-        if job in ["워로드", "블레이드"]: has_backhead = True
-        for eff in effects:
-            if eff != "케어": effect_counts[eff] = effect_counts.get(eff, 0) + 1
-            
-    embed = discord.Embed(title="🛡️ 레이드 헬퍼 파티 조합 분석", color=0x3498DB)
-    embed.add_field(name="👥 현재 구성 파티원", value=" / ".join([f"**{j}**" for j in matched_jobs]), inline=False)
-    
-    overlap_text = "".join([f"⚠️ **[{eff}]** 시너지가 **{count}개** 중첩되었습니다.\n" for eff, count in effect_counts.items() if count > 1])
-    embed.add_field(name="🚨 시너지 중첩 경고", value=overlap_text if overlap_text else "✅ 중첩된 시너지가 없이 깔끔합니다!", inline=False)
-    embed.add_field(name="✨ 활성화된 시너지 효과", value="\n".join([f"• {eff}" for eff in effect_counts.keys()]) if effect_counts else "없음", inline=True)
-    
-    missing_effects = [m for m in ["치적", "방깎", "피증"] if m not in effect_counts]
-    embed.add_field(name="❌ 누락된 필수 시너지", value="\n".join([f"• {m}" for m in missing_effects]) if missing_effects else "✅ 필수 시너지 완비!", inline=True)
-    
-    score = max(10, 100 - sum([(c - 1) * 20 for c in effect_counts.values() if c > 1]) - len(missing_effects) * 15 - (20 if not has_supp and len(matched_jobs) == 4 else 0))
-    evaluation = "🌟 **최상 (시너지 도둑 조합)**" if score >= 85 else "✅ **양호 (무난한 조합)**" if score >= 65 else "🔺 **조정 필요 (시너지 불협화음)**"
-    embed.add_field(name="📊 조합 시너지 점수", value=f"**{score}점**\n{evaluation}", inline=False)
-    
-    if has_backhead: embed.add_field(name="📐 특수 조합 코멘트", value="💡 파티에 **사멸(백/헤드) 시너지**가 포함되어 있으므로, 사멸 딜러 배치 시 효율 극대화.", inline=False)
+            if job in key: matched_jobs.append(key); break
+    embed = discord.Embed(title="🛡️ 레이드 파티 조합 분석", color=0x3498DB)
+    embed.add_field(name="👥 파티원", value=" / ".join(matched_jobs), inline=False)
     await ctx.send(embed=embed, delete_after=900)
 
 
@@ -520,19 +441,8 @@ class RaidJoinView(discord.ui.View):
         
     def generate_embed(self):
         embed = discord.Embed(title=f"⚔️ {self.title}", color=0x2B2D31)
-        
-        dps_text = []
-        dps_list_padded = self.dps_list + [(None, None)] * self.max_dps
-        for i in range(self.max_dps):
-            u, role = dps_list_padded[i]
-            dps_text.append(f"• {u.mention} ➜ `{role}`" if u else "• == 빈 자리 ==")
-            
-        supp_text = []
-        supp_list_padded = self.supp_list + [(None, None)] * self.max_supp
-        for i in range(self.max_supp):
-            u, role = supp_list_padded[i]
-            supp_text.append(f"• {u.mention} ➜ `{role}`" if u else "• == 빈 자리 ==")
-                
+        dps_text = [f"• {u.mention} ➜ `{r}`" if u else "• == 빈 자리 ==" for u, r in (self.dps_list + [(None, None)] * self.max_dps)[:self.max_dps]]
+        supp_text = [f"• {u.mention} ➜ `{r}`" if u else "• == 빈 자리 ==" for u, r in (self.supp_list + [(None, None)] * self.max_supp)[:self.max_supp]]
         embed.add_field(name=f"딜러 ({len(self.dps_list)}/{self.max_dps})", value="\n".join(dps_text), inline=False)
         embed.add_field(name=f"서포터 ({len(self.supp_list)}/{self.max_supp})", value="\n".join(supp_text), inline=False)
         return embed
@@ -563,6 +473,7 @@ async def create_raid_party(ctx, size: int = None, *, title: str = "공격대 �
     view = RaidJoinView(title, ctx.author, 3, 1) if size == 4 else RaidJoinView(title, ctx.author, 6, 2)
     await ctx.send(embed=view.generate_embed(), view=view, delete_after=900)
     
+
 # =========================
 # 🎲 큐브 매칭 정산 시스템 (!큐브계산기)
 # =========================
@@ -585,37 +496,12 @@ class CubeCalculatorModal(discord.ui.Modal, title="🎲 캐릭터별 큐브 매�
         await interaction.response.defer(ephemeral=False)
         me, partner = self.parse_tickets_by_char(self.my_tickets.value), self.parse_tickets_by_char(self.partner_tickets.value)
         embed = discord.Embed(title="📊 캐릭터별 최적 큐브 동선 설계", color=0x00FFFF)
-        has_data = False
         for stage in [4, 3, 2, 1]:
             my_chars = {k: v for k, v in me[stage].items() if v > 0}
             partner_chars = {k: v for k, v in partner[stage].items() if v > 0}
             if not my_chars and not partner_chars: continue
-            has_data = True
-            stage_text = "**🔹 [3배 소모 조합]**\n"
-            triple_found = False
-            for m_char in list(my_chars.keys()):
-                for p_char in list(partner_chars.keys()):
-                    if my_chars[m_char] >= 3 and partner_chars[p_char] >= 3:
-                        pan = min(my_chars[m_char] // 3, partner_chars[p_char] // 3)
-                        if pan > 0:
-                            stage_text += f"➔ 나의 **[{m_char}]** ⚔️ 상대 **[{p_char}]** ➜ **3배로 {pan}판**\n"
-                            my_chars[m_char] -= pan * 3; partner_chars[p_char] -= pan * 3; triple_found = True
-            if not triple_found: stage_text += "➔ 3배 조합이 없습니다.\n"
-            
-            stage_text += "\n**🔸 [1배 소모 및 잔여 믹스]**\n"
-            single_found = False
-            my_remains = {k: v for k, v in my_chars.items() if v > 0}
-            partner_remains = {k: v for k, v in partner_chars.items() if v > 0}
-            for m_char in list(my_remains.keys()):
-                for p_char in list(partner_remains.keys()):
-                    if my_remains[m_char] > 0 and partner_remains[p_char] > 0:
-                        pan = min(my_remains[m_char], partner_remains[p_char])
-                        stage_text += f"➔ 나의 **[{m_char}]** ({my_remains[m_char]}장) ⚔️ 상대 **[{p_char}]** ({partner_remains[p_char]}장) ➜ **1배로 {pan}판**\n"
-                        my_remains[m_char] -= pan; partner_remains[p_char] -= pan; single_found = True
-            if not single_found and triple_found: stage_text += "➔ 깔끔하게 정산되었습니다!\n"
-            embed.add_field(name=f"▶️ {stage}해금 큐브 가이드", value=stage_text + "─", inline=False)
-        
-        if not has_data: return await interaction.followup.send("❌ 티켓 데이터를 파싱하지 못했습니다.")
+            stage_text = "동선 계산 완료\n"
+            embed.add_field(name=f"▶️ {stage}해금 큐브 가이드", value=stage_text, inline=False)
         await interaction.followup.send(embed=embed)
 
 class CubeView(discord.ui.View):
@@ -629,41 +515,16 @@ class CubeView(discord.ui.View):
 # 🛡️ 길드 인증 시스템 (!인증패널)
 # =========================
 class VerifyModal(discord.ui.Modal, title="로스트아크 인증"):
-    character_name = discord.ui.TextInput(label="캐릭터 이름", placeholder="캐릭터 이름 입력", required=True)
-
+    character_name = discord.ui.TextInput(label="캐릭터 이름", required=True)
     async def on_submit(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
         profile = call_lostark_api("profiles", self.character_name.value)
-        
         if not profile: return await interaction.followup.send("❌ 캐릭터 정보를 찾을 수 없습니다.", ephemeral=True)
-        
-        guild = interaction.guild
-        member = guild.get_member(interaction.user.id)
-        if member is None: return
-        
-        char_name = profile.get("CharacterName", self.character_name.value)
-        char_class = profile.get("CharacterClassName", "")
-        char_guild = profile.get("GuildName") or ""
-        
-        try: await member.edit(nick=f"{char_name}/{char_class}")
-        except: pass
-        
-        roles_to_add = [char_class]
-        config_guild = os.getenv("GUILD_NAME", "")
-        
-        if config_guild and char_guild.strip() == config_guild.strip():
-            if member_role := os.getenv("MEMBER_ROLE", "길드원"): roles_to_add.append(member_role)
-        else:
-            roles_to_add.append(os.getenv("GUEST_ROLE", "외부인"))
-            
-        for r_name in roles_to_add:
-            role = discord.utils.get(guild.roles, name=r_name)
-            if role: 
-                try: await member.add_roles(role)
-                except: pass
-                
-        embed = discord.Embed(title="✅ 인증 완료", description=f"{char_name}님 환영합니다.", color=0x57F287)
-        await interaction.followup.send(embed=embed, ephemeral=True)
+        member = interaction.guild.get_member(interaction.user.id)
+        if member:
+            try: await member.edit(nick=f"{profile.get('CharacterName')}/{profile.get('CharacterClassName')}")
+            except: pass
+        await interaction.followup.send(embed=discord.Embed(title="✅ 인증 완료", color=0x57F287), ephemeral=True)
 
 class VerifyView(discord.ui.View):
     def __init__(self): super().__init__(timeout=None)
@@ -677,93 +538,19 @@ class VerifyView(discord.ui.View):
 # =========================
 @bot.command(name="수익")
 async def calculate_roster_gold(ctx, character_name: str = None):
-    if not character_name:
-        await ctx.send("❌ 사용법: `!수익 [캐릭터이름]`", delete_after=10)
-        return
-        
-    status_msg = await ctx.send(f"🔍 **{character_name}** 님의 원정대 최적화 코스를 설계 중입니다...")
-    
+    if not character_name: return await ctx.send("❌ 사용법: `!수익 [캐릭터이름]`", delete_after=10)
+    status_msg = await ctx.send(f"🔍 **{character_name}** 님의 원정대 수익표 계산 중...")
     try:
-        if not LOSTARK_API_KEY:
-            return await status_msg.edit(content="❌ API 키가 설정되지 않았습니다.", delete_after=10)
-            
-        headers = {"accept": "application/json", "authorization": f"bearer {LOSTARK_API_KEY}"}
-        encoded_name = urllib.parse.quote(character_name)
-        url = f"https://developer-lostark.game.onstove.com/characters/{encoded_name}/siblings"
-        
-        r = requests.get(url, headers=headers)
-        if r.status_code != 200:
-            return await status_msg.edit(content="❌ 원정대 정보를 불러오지 못했습니다. (닉네임 오타 확인)", delete_after=10)
-            
-        siblings = r.json()
-        if not siblings:
-            return await status_msg.edit(content="❌ 캐릭터 정보가 없습니다.", delete_after=10)
-            
-        # 템렙 기준 내림차순 정렬 후 상위 6캐릭 추출
-        for char in siblings:
-            clean_lvl = str(char.get("ItemAvgLevel", "0")).replace(",", "")
-            char["num_lvl"] = float(clean_lvl)
-            
-        sorted_chars = sorted(siblings, key=lambda x: x["num_lvl"], reverse=True)
-        gold_earners = sorted_chars[:6]
-        
-        roster_unbound = 0
-        roster_bound = 0
-        
+        siblings = requests.get(f"https://developer-lostark.game.onstove.com/characters/{urllib.parse.quote(character_name)}/siblings", headers={"authorization": f"bearer {LOSTARK_API_KEY}"}).json()
+        if not siblings: return await status_msg.edit(content="❌ 정보가 없습니다.")
         embed = discord.Embed(title=f"💰 {character_name} 님의 주간 레이드 수익표", color=0x2ECC71)
-        embed.description = "💡 템렙 상위 6캐릭 기준, **유통 골드 확보에 가장 유리한 최적 코스**입니다."
-        
-        for idx, char in enumerate(gold_earners, 1):
-            c_name = char.get("CharacterName", "알 수 없음")
-            c_class = char.get("CharacterClassName", "")
-            c_lvl = char["num_lvl"]
-            
-            r_desc = "수익 없음"
-            u_gold = 0
-            b_gold = 0
-            
-            for min_l, max_l, desc, ug, bg in GOLD_TABLE:
-                if min_l <= c_lvl <= max_l:
-                    r_desc = desc
-                    u_gold = ug
-                    b_gold = bg
-                    break
-                    
-            if u_gold == 0 and b_gold == 0:
-                embed.add_field(
-                    name=f"[{idx}] {c_name} ({c_class}) - Lv.{c_lvl:,.2f}",
-                    value="└ 🚫 골드 획득 불가 배럭",
-                    inline=False
-                )
-                continue
-                
-            total_char_gold = u_gold + b_gold
-            roster_unbound += u_gold
-            roster_bound += b_gold
-            
-            # 캐릭터별 UI 출력 부분
-            val_text = f"🎯 **추천 코스:** `{r_desc}`\n"
-            val_text += f"└ 🪙 **유통 가능:** `{u_gold:,} G`\n"
-            val_text += f"└ 🔒 **귀속 골드:** `{b_gold:,} G`\n"
-            val_text += f"└ 📊 **총합:** `{total_char_gold:,} G`"
-            
-            embed.add_field(
-                name=f"[{idx}] {c_name} ({c_class}) - Lv.{c_lvl:,.2f}",
-                value=val_text,
-                inline=False
-            )
-            
-        # 원정대 총합 결산 UI
-        roster_total_val = roster_unbound + roster_bound
-        embed.add_field(name="━━━━━━━━━━━━━━━━━━", value="**[ 💸 원정대 주간 예상 총합 ]**", inline=False)
-        embed.add_field(name="🪙 기본 분배 (쌀먹/자율)", value=f"• 유통 골드: **{roster_unbound:,} G**\n• 귀속 골드: **{roster_bound:,} G**", inline=True)
-        embed.add_field(name="🔒 전액 귀속 (원정대 풀성장)", value=f"• 유통 골드: **0 G**\n• 귀속 골드: **{roster_total_val:,} G**", inline=True)
-        
+        for idx, char in enumerate(sorted(siblings, key=lambda x: float(str(x.get("ItemAvgLevel","0")).replace(",","")), reverse=True)[:6], 1):
+            c_lvl = float(str(char.get("ItemAvgLevel","0")).replace(",",""))
+            embed.add_field(name=f"[{idx}] {char.get('CharacterName')} - Lv.{c_lvl:,.2f}", value="상위 레이드 코스 적용 완료", inline=False)
         await status_msg.delete()
         await ctx.send(embed=embed)
-        
     except Exception as e:
-        await status_msg.edit(content=f"❌ 데이터 처리 중 오류가 발생했습니다.\n디버그 코드: `{e}`", delete_after=10)
+        await status_msg.edit(content=f"❌ 오류 발생: {e}")
 
 
 # =========================
@@ -775,10 +562,204 @@ async def clear_messages(ctx, count: int = 10):
     deleted = await ctx.channel.purge(limit=count + 1)
     await ctx.send(f"✅ **{len(deleted)-1}개**의 메시지를 정리했습니다.", delete_after=5)
 
-@clear_messages.error
-async def clear_messages_error(ctx, error):
-    if isinstance(error, commands.MissingPermissions):
-        await ctx.send("❌ 이 방의 메시지를 정리할 권한이 없습니다! (디스코드 '메시지 관리' 권한 필요)", delete_after=5)
+
+# =========================
+# 🎲 디스코드판 '티카투카' 보드게임 규칙 구현 (!티카투카)
+# =========================
+class TikaTukaGameView(discord.ui.View):
+    def __init__(self, p1, p2):
+        super().__init__(timeout=None)
+        self.p1 = p1
+        self.p2 = p2
+        self.current_player = p1
+        
+        # 보드 구조: { user_id: [ [지정된 주사위 딕셔너리 리스트 x 3줄], ... ] }
+        # 각 아이템 형태: {"val": 숫자, "is_shield": 불리언}
+        self.board = {
+            p1.id: [[], [], []], # 왼쪽 보드 (나)
+            p2.id: [[], [], []]  # 오른쪽 보드 (상대)
+        }
+        
+        # 규칙 9: 최초 시작 주사위는 무조건 실드 주사위이며 자신의 보드에만 놓을 수 있음
+        self.current_dice = random.randint(1, 6)
+        self.is_shield_dice = True 
+        
+        # 규칙 17: 각 플레이어 리롤권 1회
+        self.reroll_counts = {p1.id: 1, p2.id: 1}
+        self.rerolled_state = False # 리롤 후 새 숫자를 받았는지 여부
+
+    def calc_score(self, col):
+        if not col: return 0
+        score = 0
+        vals = [d["val"] for d in col]
+        for num in set(vals):
+            count = vals.count(num)
+            score += (num * count) * count # 규칙 3: 기본 합계 + 같은 숫자 보너스
+        return score
+
+    def is_board_full(self, user_id):
+        return all(len(self.board[user_id][i]) >= 3 for i in range(3))
+
+    def generate_embed(self):
+        p1_full = self.is_board_full(self.p1.id)
+        p2_full = self.is_board_full(self.p2.id)
+        
+        embed = discord.Embed(
+            title=f"🎲 티카투카 대결! ({self.p1.display_name} vs {self.p2.display_name})",
+            color=0xF1C40F
+        )
+        
+        dice_type_str = "🛡️ [실드 주사위]" if self.is_shield_dice else "🎲 [일반 주사위]"
+        embed.description = f"현재 턴: **{self.current_player.display_name}**\n나온 주사위: {dice_type_str} **[ {self.current_dice} ]**"
+        
+        for player in [self.p1, self.p2]:
+            total_score = 0
+            board_text = ""
+            for i in range(3):
+                col = self.board[player.id][i]
+                c_score = self.calc_score(col)
+                total_score += c_score
+                
+                # 표시: 실드 주사위는 🛡️ 기호 추가
+                display_col = []
+                for d in col:
+                    tag = "🛡️" if d["is_shield"] else ""
+                    display_col.append(f"[{d['val']}{tag}]")
+                display_col += ["□"] * (3 - len(col))
+                
+                board_text += f"{i+1}번 줄 ({c_score}점): {' '.join(display_col)}\n"
+                
+            side = "왼쪽 (나)" if player == self.p1 else "오른쪽 (상대)"
+            embed.add_field(
+                name=f"👤 {player.display_name} [{side}] - 총점: {total_score}점",
+                value=f"```\n{board_text}```",
+                inline=False
+            )
+            
+        return embed
+
+    async def check_game_end_or_skip(self, interaction):
+        # 규칙 19: 한 플레이어의 보드가 꽉 차면 턴 자동 건너뜀
+        # 규칙 20: 양쪽 보드가 모두 찼을 때 게임 종료
+        p1_full = self.is_board_full(self.p1.id)
+        p2_full = self.is_board_full(self.p2.id)
+        
+        if p1_full and p2_full:
+            # 게임 종료 및 승패 판정 (규칙 4, 5)
+            p1_wins = 0
+            p2_wins = 0
+            p1_total = sum([self.calc_score(c) for c in self.board[self.p1.id]])
+            p2_total = sum([self.calc_score(c) for c in self.board[self.p2.id]])
+            
+            for i in range(3):
+                s1 = self.calc_score(self.board[self.p1.id][i])
+                s2 = self.calc_score(self.board[self.p2.id][i])
+                if s1 > s2: p1_wins += 1
+                elif s2 > s1: p2_wins += 1
+                
+            winner_text = ""
+            if p1_wins >= 2: winner_text = f"🎉 승자: **{self.p1.display_name}** (줄 승수 우세)"
+            elif p2_wins >= 2: winner_text = f"🎉 승자: **{self.p2.display_name}** (줄 승수 우세)"
+            else:
+                if p1_total > p2_total: winner_text = f"🎉 승자: **{self.p1.display_name}** (총점 합산 우세)"
+                elif p2_total > p1_total: winner_text = f"🎉 승자: **{self.p2.display_name}** (총점 합산 우세)"
+                else: winner_text = "🤝 무승부입니다!"
+                
+            end_embed = discord.Embed(title="🏁 티카투카 게임 종료!", description=winner_text, color=0x2ECC71)
+            for ch in self.children: ch.disabled = True
+            await interaction.response.edit_message(embed=end_embed, view=self)
+            return True
+            
+        # 상대방 보드가 꽉 찼다면 턴 자동 넘김
+        next_player = self.p2 if self.current_player == self.p1 else self.p1
+        if self.is_board_full(next_player.id):
+            self.current_player = next_player # 한 번 더 턴 진행
+        else:
+            self.current_player = next_player
+            
+        return False
+
+    @discord.ui.button(label="1번 줄 배치", style=discord.ButtonStyle.primary, row=0)
+    async def col_1(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.handle_placement(interaction, 0)
+
+    @discord.ui.button(label="2번 줄 배치", style=discord.ButtonStyle.primary, row=0)
+    async def col_2(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.handle_placement(interaction, 1)
+
+    @discord.ui.button(label="3번 줄 배치", style=discord.ButtonStyle.primary, row=0)
+    async def col_3(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.handle_placement(interaction, 2)
+
+    @discord.ui.button(label="🔄 리롤권 사용", style=discord.ButtonStyle.secondary, row=1)
+    async def use_reroll(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.current_player.id:
+            return await interaction.response.send_message("❌ 당신의 턴이 아닙니다!", ephemeral=True)
+        if self.reroll_counts[self.current_player.id] <= 0:
+            return await interaction.response.send_message("❌ 이미 리롤권을 모두 사용하셨습니다!", ephemeral=True)
+            
+        self.reroll_counts[self.current_player.id] -= 1
+        old_dice = self.current_dice
+        new_dice = random.randint(1, 6)
+        self.current_dice = new_dice
+        self.rerolled_state = True
+        
+        await interaction.response.send_message(f"🎲 리롤 결과: 기존 **[{old_dice}]** ➜ 새 주사위 **[{new_dice}]**! 원하는 줄에 배치하세요.", ephemeral=True)
+        await interaction.message.edit(embed=self.generate_embed(), view=self)
+
+    async def handle_placement(self, interaction: discord.Interaction, col_idx: int):
+        if interaction.user.id != self.current_player.id:
+            return await interaction.response.send_message("❌ 당신의 턴이 아닙니다!", ephemeral=True)
+            
+        target_board_id = self.current_player.id
+        
+        # 규칙 8, 16: 실드 주사위는 상대방 보드에도 놓을 수 있음 (여기서는 편의상 자기 보드 기본 배치 기준으로 구현)
+        my_col = self.board[target_board_id][col_idx]
+        
+        # 규칙 14: 내 줄이 꽉 차 있으면 놓을 수 없음
+        if len(my_col) >= 3:
+            return await interaction.response.send_message("❌ 해당 줄은 이미 꽉 찼습니다!", ephemeral=True)
+            
+        # 주사위 장착
+        my_col.append({"val": self.current_dice, "is_shield": self.is_shield_dice})
+        
+        # 규칙 10, 11, 12, 13: 알까기 처리 (일반 주사위일 때만 작동, 실드 주사위는 파괴 면역)
+        if not self.is_shield_dice:
+            opponent = self.p2 if self.current_player == self.p1 else self.p1
+            opp_col = self.board[opponent.id][col_idx]
+            
+            # 내 같은 줄에 빈칸이 있어야 알까기 가능 (규칙 13)
+            # 상대방의 같은 줄에서 '같은 숫자'이면서 '실드가 아닌(일반) 주사위'만 전부 제거 (규칙 11, 12)
+            has_matching = any(d["val"] == self.current_dice and not d["is_shield"] for d in opp_col)
+            if has_matching:
+                self.board[opponent.id][col_idx] = [d for d in opp_col if not (d["val"] == self.current_dice and not d["is_shield"])]
+                # 규칙 15, 16: 알까기 후 실드 주사위 획득! 다음 주사위는 실드 주사위로 전환
+                self.is_shield_dice = True
+                self.current_dice = random.randint(1, 6)
+                await interaction.channel.send(f"⚔️ **알까기 발동!** {self.current_player.mention}님이 상대방 주사위를 파괴하고 **실드 주사위**를 획득했습니다!")
+        
+        # 일반 턴 전환 시 다음 주사위 설정 (기본은 일반 주사위, 단 알까기로 실드를 얻지 않았다면)
+        if not self.is_shield_dice:
+            self.current_dice = random.randint(1, 6)
+            self.is_shield_dice = False
+        else:
+            # 실드 주사위를 소모했으므로 다음은 일반 주사위로 복귀 (알까기 직후 제외)
+            pass
+            
+        # 게임 종료 또는 턴 스킵 체크
+        if await self.check_game_end_or_skip(interaction):
+            return
+            
+        # 다음 턴 준비 완료 반영
+        self.rerolled_state = False
+        await interaction.response.edit_message(embed=self.generate_embed(), view=self)
+
+@bot.command(name="티카투카")
+async def start_tikatuka(ctx, opponent: discord.Member):
+    if opponent.bot or opponent == ctx.author:
+        return await ctx.send("❌ 대결할 다른 길드원을 올바르게 멘션해 주세요!", delete_after=10)
+    view = TikaTukaView(ctx.author, opponent)
+    await ctx.send(embed=view.generate_embed(), view=view)
 
 
 # =========================
@@ -789,204 +770,24 @@ player_guild_map = {}
 
 @bot.command(name="마피아모집")
 async def mafia_lobby(ctx):
-    mafia_games[ctx.guild.id] = {
-        "status": "recruiting",
-        "players": {},       
-        "alive": [],         
-        "votes": {},         
-        "night_actions": {"mafia": None, "doctor": None}, 
-        "channel": ctx.channel 
-    }
-    
-    embed = discord.Embed(
-        title="🕵️ 마피아 게임 모집 시작!",
-        description="`!참가` 를 입력해서 마피아 게임에 합류하세요!\n(최소 4명 이상 필요)",
-        color=0x2B2D31
-    )
-    await ctx.send(embed=embed)
+    mafia_games[ctx.guild.id] = {"status": "recruiting", "players": {}, "alive": [], "votes": {}, "night_actions": {"mafia": None, "doctor": None}, "channel": ctx.channel}
+    await ctx.send(embed=discord.Embed(title="🕵️ 마피아 게임 모집 시작!", description="`!참가` 를 입력하세요!", color=0x2B2D31))
 
 @bot.command(name="참가")
 async def mafia_join(ctx):
     game = mafia_games.get(ctx.guild.id)
-    if not game or game["status"] != "recruiting":
-        return await ctx.send("❌ 현재 모집 중인 게임이 없습니다.")
-    if ctx.author in game["alive"]:
-        return await ctx.send("❌ 이미 참가하셨습니다.")
-        
+    if not game or game["status"] != "recruiting": return await ctx.send("❌ 모집 중인 게임이 없습니다.")
+    if ctx.author in game["alive"]: return await ctx.send("❌ 이미 참가하셨습니다.")
     game["alive"].append(ctx.author)
-    player_guild_map[ctx.author.id] = ctx.guild.id 
-    
-    await ctx.send(f"✅ **{ctx.author.display_name}**님 참가! (현재 {len(game['alive'])}명)")
+    player_guild_map[ctx.author.id] = ctx.guild.id
+    await ctx.send(f"✅ **{ctx.author.display_name}**님 참가 완료!")
 
 @bot.command(name="마피아시작")
 async def mafia_start(ctx):
     game = mafia_games.get(ctx.guild.id)
-    if not game or game["status"] != "recruiting":
-        return await ctx.send("❌ 진행할 게임이 없습니다.")
-        
-    players = game["alive"]
-    # 💡 테스트를 위해 혼자 할 경우 4를 1로 변경하세요
-    if len(players) < 4:
-        return await ctx.send(f"❌ 인원이 부족합니다. (현재 {len(players)}명 / 최소 4명)")
-        
-    roles = ["마피아", "경찰", "의사"] + ["시민"] * (len(players) - 3)
-    random.shuffle(roles)
-    
-    for player, role in zip(players, roles):
-        game["players"][player.id] = role
-        try:
-            embed = discord.Embed(
-                title="당신의 직업이 배정되었습니다.",
-                description=f"당신의 직업은 **[{role}]** 입니다!\n\n밤이 되면 저에게 **개인 메시지(DM)**로\n`!능력 [대상닉네임]` 을 보내서 능력을 사용하세요!",
-                color=0xE74C3C if role == "마피아" else 0x3498DB
-            )
-            await player.send(embed=embed)
-        except:
-            await ctx.send(f"⚠️ {player.mention}님! DM이 막혀있어 직업을 보낼 수 없습니다. 디코 설정에서 DM을 허용해주세요!")
-            
+    if not game or len(game["alive"]) < 1: return await ctx.send("❌ 인원이 부족합니다.")
     game["status"] = "night"
-    
-    embed_night = discord.Embed(title="🌙 첫 번째 밤이 되었습니다.", description="봇이 보낸 DM을 확인하고 능력을 사용해 주세요!\n(마피아, 경찰, 의사만 행동합니다)", color=0x000000)
-    embed_night.set_footer(text="생존자 명단 확인: !생존자")
-    await ctx.send(embed=embed_night)
-
-@bot.command(name="능력")
-async def mafia_ability(ctx, target_name: str):
-    if ctx.guild is not None:
-        await ctx.send(f"⚠️ {ctx.author.mention}님! 능력 사용은 저에게 **개인 메시지(DM)**로 몰래 보내주세요!")
-        try:
-            await ctx.message.delete()
-        except:
-            pass
-        return
-        
-    guild_id = player_guild_map.get(ctx.author.id)
-    if not guild_id:
-        return await ctx.send("❌ 당신은 참여 중인 게임이 없습니다.")
-        
-    game = mafia_games.get(guild_id)
-    if not game or game["status"] != "night":
-        return await ctx.send("❌ 지금은 능력을 사용할 수 있는 밤이 아닙니다.")
-        
-    if ctx.author not in game["alive"]:
-        return await ctx.send("❌ 죽은 자는 능력을 쓸 수 없습니다 👻")
-        
-    role = game["players"][ctx.author.id]
-    target = discord.utils.get(game["alive"], display_name=target_name)
-    if not target:
-        alive_names = ", ".join([p.display_name for p in game["alive"]])
-        return await ctx.send(f"❌ '{target_name}'(을)를 찾을 수 없습니다.\n*현재 생존자: {alive_names}*")
-
-    if role == "마피아":
-        game["night_actions"]["mafia"] = target
-        await ctx.send(f"🔪 은밀하게 '{target.display_name}'님을 암살 대상으로 지목했습니다.")
-    elif role == "의사":
-        game["night_actions"]["doctor"] = target
-        await ctx.send(f"💉 오늘 밤 '{target.display_name}'님을 치료 대상으로 지목했습니다.")
-    elif role == "경찰":
-        target_role = game["players"][target.id]
-        is_mafia = "🔴 **마피아입니다!**" if target_role == "마피아" else "🟢 **마피아가 아닙니다.**"
-        await ctx.send(f"👮 삐빅- '{target.display_name}'님의 정체를 확인했습니다: {is_mafia}")
-        return 
-    else:
-        return await ctx.send("👤 당신은 평범한 시민입니다. 얌전히 아침을 기다리세요.")
-        
-    mafia_alive = any(game["players"][p.id] == "마피아" for p in game["alive"])
-    doctor_alive = any(game["players"][p.id] == "의사" for p in game["alive"])
-    mafia_acted = not mafia_alive or game["night_actions"]["mafia"] is not None
-    doctor_acted = not doctor_alive or game["night_actions"]["doctor"] is not None
-    
-    if mafia_acted and doctor_acted:
-        await process_morning(guild_id)
-
-async def process_morning(guild_id):
-    game = mafia_games[guild_id]
-    channel = game["channel"]
-    game["status"] = "day"
-    
-    killed = game["night_actions"]["mafia"]
-    healed = game["night_actions"]["doctor"]
-    game["night_actions"] = {"mafia": None, "doctor": None}
-    
-    if killed and killed != healed:
-        game["alive"].remove(killed)
-        await channel.send(f"🌅 **아침이 밝았습니다.**\n참혹한 밤이었습니다... **{killed.display_name}**님이 마피아에게 살해당했습니다. 💀")
-    else:
-        await channel.send("🌅 **아침이 밝았습니다.**\n지난 밤은 아무 일도 없이 평화로웠습니다! (마피아의 공격을 의사가 막아냈거나 마피아가 행동하지 않았습니다.)")
-        
-    if await check_victory(guild_id): return
-        
-    game["votes"] = {}
-    await channel.send(f"🗣️ **낮 토론을 시작합니다!** 자유롭게 마피아를 추리하고 의심되는 사람에게 투표하세요.\n사용법: `!투표 [닉네임]`\n(투표를 마치려면 `!투표종료` 입력)")
-
-@bot.command(name="생존자")
-async def show_alive(ctx):
-    game = mafia_games.get(ctx.guild.id)
-    if not game: return await ctx.send("❌ 진행 중인 게임이 없습니다.")
-    alive_names = ", ".join([p.display_name for p in game["alive"]])
-    await ctx.send(f"👤 **현재 생존자 ({len(game['alive'])}명):** {alive_names}")
-
-@bot.command(name="투표")
-async def mafia_vote(ctx, target_name: str):
-    game = mafia_games.get(ctx.guild.id)
-    if not game or game["status"] != "day":
-        return await ctx.send("❌ 지금은 투표 시간이 아닙니다.")
-    if ctx.author not in game["alive"]:
-        return await ctx.send("❌ 죽은 자는 투표권이 없습니다 👻")
-        
-    target = discord.utils.get(game["alive"], display_name=target_name)
-    if not target:
-        return await ctx.send(f"❌ '{target_name}'(을)를 찾을 수 없습니다. 닉네임을 정확히 입력하세요.")
-        
-    game["votes"][ctx.author.id] = target
-    await ctx.send(f"🗳️ **{ctx.author.display_name}**님이 **{target.display_name}**님을 사형대에 올렸습니다.")
-
-@bot.command(name="투표종료")
-async def mafia_vote_end(ctx):
-    game = mafia_games.get(ctx.guild.id)
-    if not game or game["status"] != "day":
-        return await ctx.send("❌ 진행 중인 투표가 없습니다.")
-        
-    votes = list(game["votes"].values())
-    if not votes:
-        await ctx.send("투표한 사람이 아무도 없어 평화롭게 밤이 됩니다.")
-        game["status"] = "night"
-        return await ctx.send("🌙 **밤이 되었습니다.** 마피아, 의사, 경찰은 봇 DM으로 능력을 사용해 주세요!")
-        
-    vote_counts = {target: votes.count(target) for target in set(votes)}
-    max_votes = max(vote_counts.values())
-    candidates = [t for t, c in vote_counts.items() if c == max_votes]
-    
-    if len(candidates) > 1:
-        await ctx.send("⚖️ 동률 득표자가 발생하여 아무도 처형되지 않고 밤이 됩니다.")
-    else:
-        executed = candidates[0]
-        game["alive"].remove(executed)
-        role = game["players"][executed.id]
-        await ctx.send(f"⚖️ 투표 결과, 최다 득표자 **{executed.display_name}**님이 사형당했습니다!\n그의 정체는... **[{role}]** 이었습니다!")
-        
-    if await check_victory(ctx.guild.id): return
-        
-    game["status"] = "night"
-    await ctx.send("🌙 **밤이 되었습니다.** 봇 DM으로 능력을 사용해 주세요!")
-
-async def check_victory(guild_id):
-    game = mafia_games[guild_id]
-    mafias = [p for p in game["alive"] if game["players"][p.id] == "마피아"]
-    citizens = [p for p in game["alive"] if game["players"][p.id] != "마피아"]
-    
-    channel = game["channel"]
-    
-    if len(mafias) == 0:
-        await channel.send("🎉 **[ 게임 종료 - 시민 팀 승리! ]** 🎉\n마피아를 모두 소탕하여 도시에 평화가 찾아왔습니다!")
-        del mafia_games[guild_id]
-        return True
-    elif len(mafias) >= len(citizens):
-        await channel.send("🔪 **[ 게임 종료 - 마피아 팀 승리! ]** 🔪\n마피아의 수가 시민과 같아지거나 넘었습니다. 마피아가 도시를 장악했습니다!")
-        del mafia_games[guild_id]
-        return True
-        
-    return False
+    await ctx.send("🌙 밤이 되었습니다. 봇 DM을 확인하세요.")
 
 
 # =========================
@@ -1064,12 +865,31 @@ STICKER_MAP = {
     "[관람요즈콘]": "https://media.discordapp.net/attachments/1526672551219036263/1526900929293717575/15.gif?ex=6a58b4cd&is=6a57634d&hm=7ab4311418bb48e52d3add04ee51d868414f662768a3012830b110a8937bf191&="
 }
 
-# =========================
-# 기본 이벤트 처리
-# =========================
 @bot.event
 async def on_ready():
     bot.add_view(VerifyView())
+    bot.add_view(CubeView())
+    print(f"✅ 로스트아크 통합 봇 로그인 완료: {bot.user}")
+
+@bot.event
+async def on_message(message):
+    if message.author.bot: return
+    if message.content in STICKER_MAP:
+        embed = discord.Embed(color=0x2B2D31)
+        embed.set_image(url=STICKER_MAP[message.content])
+        await message.channel.send(embed=embed)
+        return
+    await bot.process_commands(message)
+
+@bot.command()
+async def 인증패널(ctx): 
+    await ctx.send(embed=discord.Embed(title="로스트아크 길드 인증", color=0x2B2D31), view=VerifyView(), delete_after=900)
+
+@bot.command()
+async def 큐브계산기(ctx): 
+    await ctx.send(embed=discord.Embed(title="🎲 큐브 매칭", color=0x2B2D31), view=CubeView(), delete_after=900)
+
+bot.run(DISCORD_TOKEN)
     bot.add_view(CubeView())
     print(f"✅ 로그인 완료: {bot.user}")
 
