@@ -665,7 +665,7 @@ async def clear_messages(ctx, count: int = 10):
 
 
 # =========================
-# 🎲 디스코드판 '티카투카' 보드게임 (!티카투카) - 알까기 연속 턴 공식 룰 적용
+# 🎲 디스코드판 '티카투카' 보드게임 (!티카투카) - 100% 공식 룰 반영본
 # =========================
 class TikaTukaGameView(discord.ui.View):
     def __init__(self, p1, p2):
@@ -680,11 +680,11 @@ class TikaTukaGameView(discord.ui.View):
         }
         
         self.current_dice = random.randint(1, 6)
-        # 매 턴마다 기본적으로 25% 확률로 실드 주사위 등장
-        self.is_shield_dice = random.random() < 0.25 
+        # 공식 룰: 첫 선공 시작 시 실드 주사위 100% 지급
+        self.is_shield_dice = True 
         
         self.reroll_counts = {p1.id: 1, p2.id: 1}
-        self.message = "게임 시작! 일반 주사위는 내 보드에만, 실드 주사위는 양쪽 모두 배치 가능합니다."
+        self.message = "게임 시작! 첫 턴은 🛡️실드 주사위가 지급됩니다. (반드시 내 보드에 배치)"
 
     def calc_score(self, col):
         if not col: return 0
@@ -817,9 +817,14 @@ class TikaTukaGameView(discord.ui.View):
         if interaction.user.id != self.current_player.id:
             return await interaction.response.send_message("❌ 당신의 턴이 아닙니다!", ephemeral=True)
             
+        # 첫 턴 실드 주사위 배치 제한
+        is_first_turn = all(len(self.board[self.p1.id][i]) == 0 for i in range(3)) and all(len(self.board[self.p2.id][i]) == 0 for i in range(3))
+        if is_first_turn and not is_mine:
+            return await interaction.response.send_message("❌ 최초 게임 시작 🛡️실드 주사위는 반드시 '내 보드'에 배치해야 합니다!", ephemeral=True)
+
         # 일반 주사위는 오직 '자신의 보드'에만 놓을 수 있음
         if not is_mine and not self.is_shield_dice:
-            return await interaction.response.send_message("❌ 일반 주사위는 '내 보드'에만 배치할 수 있습니다!", ephemeral=True)
+            return await interaction.response.send_message("❌ 🎲일반 주사위는 '내 보드'에만 배치할 수 있습니다!", ephemeral=True)
             
         target_player = self.current_player if is_mine else (self.p2 if self.current_player == self.p1 else self.p1)
         target_col = self.board[target_player.id][col_idx]
@@ -848,7 +853,7 @@ class TikaTukaGameView(discord.ui.View):
             
         # 알까기 성공/실패 여부에 따른 턴 및 주사위 처리
         if alkkagi_triggered:
-            # 턴이 넘어가지 않고 연속 진행, 실드 주사위 100% 획득
+            # 공식 룰: 알까기 성공 시 턴 유지 & 실드 주사위 확정 지급
             self.is_shield_dice = True
             self.current_dice = random.randint(1, 6)
         else:
@@ -858,12 +863,13 @@ class TikaTukaGameView(discord.ui.View):
             # 다음 플레이어의 보드가 꽉 찼으면 턴이 스킵되어 나에게 다시 돌아옴
             if self.is_board_full(next_player.id):
                 self.message += f"\n⚠️ {next_player.display_name}님의 보드가 꽉 차서 턴이 스킵되었습니다!"
-                self.is_shield_dice = random.random() < 0.25
+                # 턴은 넘어오지만 알까기 보상이 아니므로 일반 주사위 지급
+                self.is_shield_dice = False
                 self.current_dice = random.randint(1, 6)
             else:
                 self.current_player = next_player
-                # 다음 턴 주사위 세팅 (25% 확률로 실드 주사위 등장)
-                self.is_shield_dice = random.random() < 0.25
+                # 정상적인 턴 전환 시 일반 주사위 확정 지급
+                self.is_shield_dice = False
                 self.current_dice = random.randint(1, 6)
 
         # 리롤권 텍스트 업데이트
@@ -891,10 +897,9 @@ async def start_tikatuka(ctx, opponent: discord.Member):
     view = TikaTukaGameView(ctx.author, opponent)
     await ctx.send(embed=view.generate_embed(), view=view)
     
-    # 첫 시작 핑도 울린 뒤 바로 지워지게 처리
+    # 첫 시작 핑도 울린 뒤 3초 뒤 지워지게 처리
     ping_msg = await ctx.send(f"🔔 {ctx.author.mention}님, 게임이 시작되었습니다! 첫 차례입니다!")
     await ping_msg.delete(delay=3)
-
 
 # =========================
 # 🕵️ 마피아 게임 시스템 풀버전
