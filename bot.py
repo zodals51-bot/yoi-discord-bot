@@ -733,7 +733,155 @@ class TikaTukaGameView(discord.ui.View):
                 side += " ◀ (현재 턴)"
             embed.add_field(
                 name=f"👤 {player.display_name} [{side}] - 총점: {total_score}점",
-                value=f"```\n{board_text}
+                value=f"```\n{board_text}```",
+                inline=False
+            )
+            
+        return embed
+
+    async def check_game_end(self, interaction):
+        p1_full = self.is_board_full(self.p1.id)
+        p2_full = self.is_board_full(self.p2.id)
+        
+        if p1_full and p2_full:
+            p1_wins = 0
+            p2_wins = 0
+            p1_total = sum([self.calc_score(c) for c in self.board[self.p1.id]])
+            p2_total = sum([self.calc_score(c) for c in self.board[self.p2.id]])
+            
+            for i in range(3):
+                s1 = self.calc_score(self.board[self.p1.id][i])
+                s2 = self.calc_score(self.board[self.p2.id][i])
+                if s1 > s2: p1_wins += 1
+                elif s2 > s1: p2_wins += 1
+                
+            winner_text = ""
+            if p1_wins >= 2: 
+                winner_text = f"🎉 승자: **{self.p1.display_name}** (줄 승리 우세: {p1_wins} vs {p2_wins})"
+            elif p2_wins >= 2: 
+                winner_text = f"🎉 승자: **{self.p2.display_name}** (줄 승리 우세: {p2_wins} vs {p1_wins})"
+            else:
+                if p1_total > p2_total: 
+                    winner_text = f"🎉 승자: **{self.p1.display_name}** (줄 동률, 총점 우세: {p1_total} vs {p2_total})"
+                elif p2_total > p1_total: 
+                    winner_text = f"🎉 승자: **{self.p2.display_name}** (줄 동률, 총점 우세: {p2_total} vs {p1_total})"
+                else: 
+                    winner_text = "🤝 완벽한 무승부입니다!"
+                
+            end_embed = discord.Embed(title="🏁 티카투카 게임 종료!", description=winner_text, color=0x2ECC71)
+            for ch in self.children: ch.disabled = True
+            await interaction.response.edit_message(embed=end_embed, view=self)
+            return True
+        return False
+
+    @discord.ui.button(label="내 보드 1번", style=discord.ButtonStyle.primary, row=0)
+    async def my_col_1(self, interaction: discord.Interaction, button: discord.ui.Button): await self.handle_placement(interaction, True, 0)
+    @discord.ui.button(label="내 보드 2번", style=discord.ButtonStyle.primary, row=0)
+    async def my_col_2(self, interaction: discord.Interaction, button: discord.ui.Button): await self.handle_placement(interaction, True, 1)
+    @discord.ui.button(label="내 보드 3번", style=discord.ButtonStyle.primary, row=0)
+    async def my_col_3(self, interaction: discord.Interaction, button: discord.ui.Button): await self.handle_placement(interaction, True, 2)
+
+    @discord.ui.button(label="상대 보드 1번", style=discord.ButtonStyle.danger, row=1)
+    async def opp_col_1(self, interaction: discord.Interaction, button: discord.ui.Button): await self.handle_placement(interaction, False, 0)
+    @discord.ui.button(label="상대 보드 2번", style=discord.ButtonStyle.danger, row=1)
+    async def opp_col_2(self, interaction: discord.Interaction, button: discord.ui.Button): await self.handle_placement(interaction, False, 1)
+    @discord.ui.button(label="상대 보드 3번", style=discord.ButtonStyle.danger, row=1)
+    async def opp_col_3(self, interaction: discord.Interaction, button: discord.ui.Button): await self.handle_placement(interaction, False, 2)
+
+    @discord.ui.button(label="🔄 리롤권 사용 (1회)", style=discord.ButtonStyle.secondary, row=2, custom_id="btn_reroll")
+    async def use_reroll(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.current_player.id:
+            return await interaction.response.send_message("❌ 당신의 턴이 아닙니다!", ephemeral=True)
+        if not self.has_reroll[self.current_player.id]:
+            return await interaction.response.send_message("❌ 이미 리롤권을 모두 사용하셨습니다!", ephemeral=True)
+            
+        # 리롤권 소모 (게임당 딱 1번)
+        self.has_reroll[self.current_player.id] = False
+        old_dice = self.current_dice
+        self.current_dice = random.randint(1, 6)
+        
+        self.message = f"🔄 리롤 사용 완료! 기존 [{old_dice}] ➜ 새 주사위 **[{self.current_dice}]**"
+        
+        # 버튼 비활성화 및 텍스트 변경
+        button.label = "🔄 리롤권 소모됨"
+        button.disabled = True
+                
+        await interaction.response.edit_message(embed=self.generate_embed(), view=self)
+
+    async def handle_placement(self, interaction: discord.Interaction, is_mine: bool, col_idx: int):
+        if interaction.user.id != self.current_player.id:
+            return await interaction.response.send_message("❌ 당신의 턴이 아닙니다!", ephemeral=True)
+            
+        is_first_turn = all(len(self.board[self.p1.id][i]) == 0 for i in range(3)) and all(len(self.board[self.p2.id][i]) == 0 for i in range(3))
+        if is_first_turn and not is_mine:
+            return await interaction.response.send_message("❌ 최초 게임 시작 🛡️실드 주사위는 반드시 '내 보드'에 배치해야 합니다!", ephemeral=True)
+
+        if not is_mine and not self.is_shield_dice:
+            return await interaction.response.send_message("❌ 🎲일반 주사위는 '내 보드'에만 배치할 수 있습니다!", ephemeral=True)
+            
+        target_player = self.current_player if is_mine else (self.p2 if self.current_player == self.p1 else self.p1)
+        target_col = self.board[target_player.id][col_idx]
+        
+        if len(target_col) >= 3:
+            return await interaction.response.send_message("❌ 해당 줄은 이미 꽉 찼습니다! 다른 줄을 선택해 주세요.", ephemeral=True)
+            
+        self.message = ""
+        alkkagi_triggered = False
+        
+        # 알까기 판정: 내가 내 보드에 놓았을 때, 상대방 같은 줄에 같은 숫자가 있는지 확인
+        if is_mine:
+            opponent = self.p2 if self.current_player == self.p1 else self.p1
+            opp_col = self.board[opponent.id][col_idx]
+            
+            to_destroy = [d for d in opp_col if d["val"] == self.current_dice]
+            if to_destroy:
+                # 알까기 성공: 상대방 같은 숫자 주사위 파괴 (내가 놓으려던 주사위도 같이 소멸하므로 target_col에 추가 안 함)
+                self.board[opponent.id][col_idx] = [d for d in opp_col if d["val"] != self.current_dice]
+                alkkagi_triggered = True
+                self.message = f"💥 **알까기 성공!** 내 주사위와 상대방의 [{self.current_dice}] 주사위가 함께 소멸했습니다! 보상으로 🛡️ **실드 주사위**를 받아 연속으로 배치하세요!"
+        
+        # 알까기가 안 떴을 때만 정상적으로 보드에 주사위 장착
+        if not alkkagi_triggered:
+            target_col.append({"val": self.current_dice, "is_shield": self.is_shield_dice})
+        
+        if await self.check_game_end(interaction):
+            return
+            
+        # 턴 및 주사위 속성 결정
+        if alkkagi_triggered:
+            # 알까기 성공 시: 턴이 안 넘어가고, 실드 주사위 하나를 부여받아 연속 진행
+            self.is_shield_dice = True
+            self.current_dice = random.randint(1, 6)
+        else:
+            # 일반 진행 시 턴 넘김
+            next_player = self.p2 if self.current_player == self.p1 else self.p1
+            
+            if self.is_board_full(next_player.id):
+                self.message += f"\n⚠️ {next_player.display_name}님의 보드가 꽉 차서 턴이 스킵되었습니다!"
+                self.is_shield_dice = False
+                self.current_dice = random.randint(1, 6)
+            else:
+                self.current_player = next_player
+                self.is_shield_dice = False
+                self.current_dice = random.randint(1, 6)
+
+        # 현재 턴 플레이어의 리롤권 상태에 맞게 버튼 UI 동기화
+        for child in self.children:
+            if getattr(child, "custom_id", "") == "btn_reroll":
+                can_reroll = self.has_reroll[self.current_player.id]
+                child.label = "🔄 리롤권 사용 (1회)" if can_reroll else "🔄 리롤권 소모됨"
+                child.disabled = not can_reroll
+                break
+                
+        await interaction.response.edit_message(embed=self.generate_embed(), view=self)
+        
+        # 알람 도배 방지 (3초 뒤 삭제)
+        if alkkagi_triggered:
+            ping_msg = await interaction.channel.send(f"💥 {self.current_player.mention} 님, 알까기 성공으로 실드 주사위를 획득하여 연속 턴을 진행합니다!")
+        else:
+            ping_msg = await interaction.channel.send(f"🔔 {self.current_player.mention} 님, 차례입니다!")
+            
+        await ping_msg.delete(delay=3)
 
 # =========================
 # 🕵️ 마피아 게임 시스템 풀버전
