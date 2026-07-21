@@ -475,7 +475,7 @@ async def create_raid_party(ctx, size: int = None, *, title: str = "공격대 �
     
 
 # =========================
-# 🎲 큐브 매칭 정산 시스템 (!큐브계산기) - 풀버전 복원
+# 🎲 큐브 매칭 정산 시스템 (!큐브계산기)
 # =========================
 class CubeCalculatorModal(discord.ui.Modal, title="🎲 캐릭터별 큐브 매칭 정산"):
     my_tickets = discord.ui.TextInput(label="내 캐릭별 티켓 현황", style=discord.TextStyle.long, required=True)
@@ -674,16 +674,16 @@ class TikaTukaGameView(discord.ui.View):
         self.p2 = p2
         self.current_player = p1
         
+        # 보드 구조: { user_id: [ [줄1], [줄2], [줄3] ] }
         self.board = {
-            p1.id: [[], [], []],
-            p2.id: [[], [], []]
+            p1.id: [[], [], []], # 왼쪽 보드 (p1)
+            p2.id: [[], [], []]  # 오른쪽 보드 (p2)
         }
         
         self.current_dice = random.randint(1, 6)
-        self.is_shield_dice = True 
+        self.is_shield_dice = True # 첫 시작은 실드 주사위
         
         self.reroll_counts = {p1.id: 1, p2.id: 1}
-        self.rerolled_state = False
 
     def calc_score(self, col):
         if not col: return 0
@@ -704,7 +704,7 @@ class TikaTukaGameView(discord.ui.View):
         )
         
         dice_type_str = "🛡️ [실드 주사위]" if self.is_shield_dice else "🎲 [일반 주사위]"
-        embed.description = f"현재 턴: **{self.current_player.display_name}**\n나온 주사위: {dice_type_str} **[ {self.current_dice} ]**"
+        embed.description = f"🔔 현재 턴: **{self.current_player.mention} 님의 차례입니다!**\n나온 주사위: {dice_type_str} **[ {self.current_dice} ]**"
         
         for player in [self.p1, self.p2]:
             total_score = 0
@@ -760,9 +760,13 @@ class TikaTukaGameView(discord.ui.View):
             await interaction.response.edit_message(embed=end_embed, view=self)
             return True
             
+        # 턴 전환 대상 설정
         next_player = self.p2 if self.current_player == self.p1 else self.p1
+        
+        # 보드가 가득 찬 플레이어는 턴 자동 스킵 처리
         if self.is_board_full(next_player.id):
-            self.current_player = next_player
+            # 상대 보드도 꽉 찼는지 위에서 체크했으므로 여기서는 한쪽만 찼을 때 원래 플레이어가 계속 진행
+            pass
         else:
             self.current_player = next_player
             
@@ -791,7 +795,6 @@ class TikaTukaGameView(discord.ui.View):
         old_dice = self.current_dice
         new_dice = random.randint(1, 6)
         self.current_dice = new_dice
-        self.rerolled_state = True
         
         await interaction.response.send_message(f"🎲 리롤 결과: 기존 **[{old_dice}]** ➜ 새 주사위 **[{new_dice}]**! 원하는 줄에 배치하세요.", ephemeral=True)
         await interaction.message.edit(embed=self.generate_embed(), view=self)
@@ -800,14 +803,21 @@ class TikaTukaGameView(discord.ui.View):
         if interaction.user.id != self.current_player.id:
             return await interaction.response.send_message("❌ 당신의 턴이 아닙니다!", ephemeral=True)
             
-        target_board_id = self.current_player.id
-        my_col = self.board[target_board_id][col_idx]
-        
-        if len(my_col) >= 3:
-            return await interaction.response.send_message("❌ 해당 줄은 이미 꽉 찼습니다!", ephemeral=True)
+        # 1. 숫자 크기 및 배치 규칙 적용 (낮은 숫자 1~3이면 상대방 보드, 높은 숫자 4~6이면 내 보드)
+        # 단, 실드 주사위이거나 일반 주사위에 따라 선택권 부여
+        target_player = self.current_player
+        if not self.is_shield_dice and self.current_dice <= 3:
+            # 낮은 숫자일 경우 상대방 보드에 놓을 수 있음
+            target_player = self.p2 if self.current_player == self.p1 else self.p1
             
-        my_col.append({"val": self.current_dice, "is_shield": self.is_shield_dice})
+        target_col = self.board[target_player.id][col_idx]
         
+        if len(target_col) >= 3:
+            return await interaction.response.send_message("❌ 해당 줄은 이미 꽉 찼습니다! 다른 줄을 선택해 주세요.", ephemeral=True)
+            
+        target_col.append({"val": self.current_dice, "is_shield": self.is_shield_dice})
+        
+        # 알까기 처리 (일반 주사위일 때만 작동)
         if not self.is_shield_dice:
             opponent = self.p2 if self.current_player == self.p1 else self.p1
             opp_col = self.board[opponent.id][col_idx]
@@ -816,28 +826,26 @@ class TikaTukaGameView(discord.ui.View):
             if has_matching:
                 self.board[opponent.id][col_idx] = [d for d in opp_col if not (d["val"] == self.current_dice and not d["is_shield"])]
                 self.is_shield_dice = True
-                self.current_dice = random.randint(1, 6)
                 await interaction.channel.send(f"⚔️ **알까기 발동!** {self.current_player.mention}님이 상대방 주사위를 파괴하고 **실드 주사위**를 획득했습니다!")
         
-        if not self.is_shield_dice:
-            self.current_dice = random.randint(1, 6)
-            self.is_shield_dice = False
-        else:
-            self.is_shield_dice = False
-            self.current_dice = random.randint(1, 6)
+        # 다음 주사위 준비
+        self.is_shield_dice = False
+        self.current_dice = random.randint(1, 6)
             
         if await self.check_game_end_or_skip(interaction):
             return
             
-        self.rerolled_state = False
+        # 턴 전환 후 멘션 알람과 함께 메시지 갱신
         await interaction.response.edit_message(embed=self.generate_embed(), view=self)
+        await interaction.channel.send(f"🔔 {self.current_player.mention}님, 차례입니다!")
 
 @bot.command(name="티카투카")
 async def start_tikatuka(ctx, opponent: discord.Member):
     if opponent.bot or opponent == ctx.author:
         return await ctx.send("❌ 대결할 다른 길드원을 올바르게 멘션해 주세요!", delete_after=10)
     view = TikaTukaGameView(ctx.author, opponent)
-    await ctx.send(embed=view.generate_embed(), view=view)
+    msg = await ctx.send(embed=view.generate_embed(), view=view)
+    await ctx.send(f"🔔 {ctx.author.mention}님, 게임이 시작되었습니다! 첫 차례입니다!")
 
 
 # =========================
