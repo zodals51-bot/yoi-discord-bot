@@ -1574,6 +1574,324 @@ async def liar_start(ctx):
     game["votes"] = {}
     await ctx.send(embed=discord.Embed(title="🦊 라이어 게임 주제 투표", description="원하는 주제에 투표하세요!", color=0xE74C3C), view=LiarThemeVoteView(game))
 
+# ==========================================================
+# 🎲 디스코드판 '부루마블' 보드게임 시스템
+# ==========================================================
+bluemarble_games = {}
+
+# 16개 부루마블 보드 칸 구성 (가격 단위: 만 원)
+BOARD_SPACES = [
+    {"name": "🚩 출발지", "type": "start"},
+    {"name": "🇹🇭 방콕", "type": "city", "price": 20, "toll": 15},
+    {"name": "🔑 황금열쇠", "type": "key"},
+    {"name": "🇹🇼 타이베이", "type": "city", "price": 30, "toll": 20},
+    {"name": "🏝️ 무인도", "type": "island"},
+    {"name": "🇦🇺 시드니", "type": "city", "price": 40, "toll": 30},
+    {"name": "🇯🇵 도쿄", "type": "city", "price": 50, "toll": 40},
+    {"name": "🔑 황금열쇠", "type": "key"},
+    {"name": "💸 사회복지기금", "type": "tax"},
+    {"name": "🇫🇷 파리", "type": "city", "price": 60, "toll": 50},
+    {"name": "🇮🇹 로마", "type": "city", "price": 70, "toll": 60},
+    {"name": "🔑 황금열쇠", "type": "key"},
+    {"name": "🚀 우주여행", "type": "travel"},
+    {"name": "🇬🇧 런던", "type": "city", "price": 80, "toll": 70},
+    {"name": "🇺🇸 뉴욕", "type": "city", "price": 90, "toll": 80},
+    {"name": "🇰🇷 서울", "type": "city", "price": 120, "toll": 100}
+]
+
+GOLDEN_KEYS = [
+    {"title": "🎉 복권 당첨!", "desc": "축하합니다! 상금 50만 원을 획득합니다.", "money": 50},
+    {"title": "🌀 태풍 피해!", "desc": "건물 수리비로 30만 원을 지출합니다.", "money": -30},
+    {"title": "🎂 생일 파티!", "desc": "축하금으로 20만 원을 받습니다.", "money": 20},
+    {"title": "🚨 과속 단속!", "desc": "벌금 15만 원을 납부합니다.", "money": -15},
+    {"title": "🚀 우주여행 티켓!", "desc": "즉시 서울로 순간이동합니다!", "move_to": 15},
+    {"title": "🏝️ 무인도 표류!", "desc": "조난당했습니다! 즉시 무인도로 이동합니다.", "move_to": 4}
+]
+
+def render_board_embed(game):
+    embed = discord.Embed(title="🎲 부루마블 게임 진행 중", color=0x3498DB)
+    curr_p = game["current_player"]
+    
+    # 플레이어 현황 출력
+    status_text = ""
+    for p in game["players"]:
+        if p in game["eliminated"]:
+            status_text += f"• ~~{p.display_name}~~ (💀 파산)\n"
+        else:
+            pos_idx = game["pos"][p.id]
+            space_name = BOARD_SPACES[pos_idx]["name"]
+            turn_mark = " ◀ (현재 턴)" if p == curr_p else ""
+            status_text += f"• **{p.display_name}**: `{game['money'][p.id]}만 원` (위치: {space_name}){turn_mark}\n"
+    
+    embed.add_field(name="👥 플레이어 현황", value=status_text, inline=False)
+    
+    # 부동산 소유 현황 출력
+    lands_text = ""
+    for idx, space in enumerate(BOARD_SPACES):
+        if space["type"] == "city":
+            land_info = game["lands"][idx]
+            owner = land_info["owner"]
+            if owner:
+                lvl_str = "⭐" * land_info["level"]
+                lands_text += f"{space['name']}: **{owner.display_name}** 소유 ({lvl_str} 건물 / 통행료 {get_toll_price(space, land_info['level'])}만 원)\n"
+            else:
+                lands_text += f"{space['name']}: 미소유 (매수가: {space['price']}만 원)\n"
+    
+    embed.add_field(name="🏢 도시 매수 현황", value=lands_text if lands_text else "없음", inline=False)
+    embed.add_field(name="💰 사회복지기금 적립금", value=f"`{game['fund']}만 원`", inline=True)
+    
+    if game.get("last_action"):
+        embed.add_field(name="📢 최근 진행 상황", value=game["last_action"], inline=False)
+        
+    return embed
+
+def get_toll_price(space, level):
+    return space["toll"] + (level * 20)
+
+class BlueMarbleGameView(discord.ui.View):
+    def __init__(self, game_data):
+        super().__init__(timeout=None)
+        self.game_data = game_data
+        
+        # 버튼 활성화 여부 조정
+        curr_state = game_data.get("state", "roll")
+        if curr_state == "roll":
+            self.add_item(RollDiceButton())
+        elif curr_state in ["buy", "upgrade"]:
+            self.add_item(BuyLandButton(curr_state == "upgrade"))
+            self.add_item(SkipBuyButton())
+        elif curr_state == "travel_select":
+            self.add_item(TravelSelectButton())
+
+class RollDiceButton(discord.ui.Button):
+    def __init__(self):
+        super().__init__(label="🎲 주사위 굴리기", style=discord.ButtonStyle.primary)
+
+    async def callback(self, interaction: discord.Interaction):
+        game = self.view.game_data
+        if interaction.user != game["current_player"]:
+            return await interaction.response.send_message("❌ 당신의 차례가 아닙니다!", ephemeral=True)
+
+        curr_p = game["current_player"]
+        
+        # 무인도 갇힘 체크
+        if game["island"][curr_p.id] > 0:
+            game["island"][curr_p.id] -= 1
+            game["last_action"] = f"🏝️ **{curr_p.display_name}** 님은 무인도에 갇혀있습니다! (남은 턴: {game['island'][curr_p.id]}턴)"
+            await advance_bm_turn(game, interaction)
+            return
+
+        # 주사위 2개 굴리기
+        d1, d2 = random.randint(1, 6), random.randint(1, 6)
+        dice_sum = d1 + d2
+        
+        old_pos = game["pos"][curr_p.id]
+        new_pos = (old_pos + dice_sum) % 16
+        game["pos"][curr_p.id] = new_pos
+        
+        action_msg = f"🎲 **{curr_p.display_name}** 님이 주사위를 굴려 **[{d1} + {d2} = {dice_sum}]** 이(가) 나왔습니다!\n"
+        
+        # 월급 지급 (출발지 통과)
+        if new_pos < old_pos:
+            game["money"][curr_p.id] += 50
+            action_msg += "🚩 출발지를 지나치며 **월급 50만 원**을 받았습니다!\n"
+            
+        space = BOARD_SPACES[new_pos]
+        action_msg += f"📍 도착 칸: **{space['name']}**\n"
+
+        # 칸 유형별 이벤트 처리
+        if space["type"] == "city":
+            land_info = game["lands"][new_pos]
+            if land_info["owner"] is None:
+                game["state"] = "buy"
+                game["last_action"] = action_msg + f"💰 이 땅은 주인 없음! ({space['price']}만 원에 매수 가능)"
+                return await interaction.response.edit_message(embed=render_board_embed(game), view=BlueMarbleGameView(game))
+            elif land_info["owner"] == curr_p:
+                if land_info["level"] < 3:
+                    game["state"] = "upgrade"
+                    game["last_action"] = action_msg + f"🏗️ 내 땅입니다! (30만 원에 건물 증축 가능)"
+                    return await interaction.response.edit_message(embed=render_board_embed(game), view=BlueMarbleGameView(game))
+                else:
+                    action_msg += "🏢 이미 건물 증축이 완료된 내 땅입니다."
+            else:
+                # 상대방 땅 -> 통행료 지불
+                owner = land_info["owner"]
+                toll = get_toll_price(space, land_info["level"])
+                game["money"][curr_p.id] -= toll
+                game["money"][owner.id] += toll
+                action_msg += f"💸 **{owner.display_name}** 님의 땅에 들러 통행료 **{toll}만 원**을 지불했습니다!"
+                
+                # 파산 체크
+                if game["money"][curr_p.id] < 0:
+                    action_msg += f"\n💀 **{curr_p.display_name}** 님이 통행료를 감당하지 못하고 **파산**했습니다!"
+                    eliminate_bm_player(game, curr_p)
+
+        elif space["type"] == "key":
+            key = random.choice(GOLDEN_KEYS)
+            action_msg += f"🔑 **[황금열쇠 이벤트] {key['title']}**\n> {key['desc']}\n"
+            if "money" in key:
+                game["money"][curr_p.id] += key["money"]
+            if "move_to" in key:
+                game["pos"][curr_p.id] = key["move_to"]
+                if key["move_to"] == 4:
+                    game["island"][curr_p.id] = 2
+
+        elif space["type"] == "island":
+            game["island"][curr_p.id] = 2
+            action_msg += "🏝️ 무인도에 갇혔습니다! (2턴 동안 휴식)"
+
+        elif space["type"] == "tax":
+            if game["fund"] > 0:
+                action_msg += f"🎉 적립되어 있던 **사회복지기금 {game['fund']}만 원**을 모두 획득합니다!"
+                game["money"][curr_p.id] += game["fund"]
+                game["fund"] = 0
+            else:
+                action_msg += "💸 기부금이 없습니다. 사회복지기금으로 **20만 원**을 기부합니다."
+                game["money"][curr_p.id] -= 20
+                game["fund"] += 20
+
+        elif space["type"] == "travel":
+            game["state"] = "travel_select"
+            game["last_action"] = action_msg + "🚀 **우주여행!** 원하는 도시로 즉시 순간이동할 수 있습니다!"
+            return await interaction.response.edit_message(embed=render_board_embed(game), view=BlueMarbleGameView(game))
+
+        game["last_action"] = action_msg
+        await advance_bm_turn(game, interaction)
+
+class BuyLandButton(discord.ui.Button):
+    def __init__(self, is_upgrade=False):
+        label = "🏗️ 건물 증축하기 (30만 원)" if is_upgrade else "🏢 땅 매수하기"
+        super().__init__(label=label, style=discord.ButtonStyle.success)
+        self.is_upgrade = is_upgrade
+
+    async def callback(self, interaction: discord.Interaction):
+        game = self.view.game_data
+        if interaction.user != game["current_player"]:
+            return await interaction.response.send_message("❌ 당신의 차례가 아닙니다!", ephemeral=True)
+
+        curr_p = game["current_player"]
+        pos = game["pos"][curr_p.id]
+        space = BOARD_SPACES[pos]
+        
+        if self.is_upgrade:
+            cost = 30
+            if game["money"][curr_p.id] < cost:
+                return await interaction.response.send_message("❌ 돈이 부족합니다!", ephemeral=True)
+            game["money"][curr_p.id] -= cost
+            game["lands"][pos]["level"] += 1
+            game["last_action"] = f"🏗️ **{curr_p.display_name}** 님이 **{space['name']}**에 건물을 증축했습니다!"
+        else:
+            cost = space["price"]
+            if game["money"][curr_p.id] < cost:
+                return await interaction.response.send_message("❌ 돈이 부족합니다!", ephemeral=True)
+            game["money"][curr_p.id] -= cost
+            game["lands"][pos]["owner"] = curr_p
+            game["last_action"] = f"🏢 **{curr_p.display_name}** 님이 **{space['name']}**을(를) 매수했습니다!"
+
+        await advance_bm_turn(game, interaction)
+
+class SkipBuyButton(discord.ui.Button):
+    def __init__(self):
+        super().__init__(label="🛑 지나치기", style=discord.ButtonStyle.secondary)
+
+    async def callback(self, interaction: discord.Interaction):
+        game = self.view.game_data
+        if interaction.user != game["current_player"]:
+            return await interaction.response.send_message("❌ 당신의 차례가 아닙니다!", ephemeral=True)
+
+        game["last_action"] += "\n(매수를 포기하고 지나쳤습니다)"
+        await advance_bm_turn(game, interaction)
+
+class TravelSelectButton(discord.ui.Button):
+    def __init__(self):
+        super().__init__(label="🌌 목적지 선택하기 (서울로 이동)", style=discord.ButtonStyle.primary)
+
+    async def callback(self, interaction: discord.Interaction):
+        game = self.view.game_data
+        if interaction.user != game["current_player"]:
+            return await interaction.response.send_message("❌ 당신의 차례가 아닙니다!", ephemeral=True)
+
+        curr_p = game["current_player"]
+        game["pos"][curr_p.id] = 15  # 가장 비싼 서울로 이동
+        game["last_action"] = f"🚀 **{curr_p.display_name}** 님이 우주여행으로 **🇰🇷 서울**로 순간이동했습니다!"
+        await advance_bm_turn(game, interaction)
+
+def eliminate_bm_player(game, player):
+    if player not in game["eliminated"]:
+        game["eliminated"].append(player)
+        # 소유한 땅 몰수
+        for idx in game["lands"]:
+            if game["lands"][idx]["owner"] == player:
+                game["lands"][idx]["owner"] = None
+                game["lands"][idx]["level"] = 0
+
+async def advance_bm_turn(game, interaction):
+    # 승리 조건 확인
+    active_players = [p for p in game["players"] if p not in game["eliminated"]]
+    if len(active_players) <= 1:
+        winner = active_players[0] if active_players else game["current_player"]
+        end_embed = discord.Embed(
+            title="🏁 부루마블 게임 종료!", 
+            description=f"🏆 대망의 최종 승리자: **{winner.mention}** 님! 축하합니다!", 
+            color=0x2ECC71
+        )
+        return await interaction.response.edit_message(embed=end_embed, view=None)
+
+    # 다음 턴으로 전환
+    game["state"] = "roll"
+    curr_idx = game["players"].index(game["current_player"])
+    while True:
+        curr_idx = (curr_idx + 1) % len(game["players"])
+        next_p = game["players"][curr_idx]
+        if next_p not in game["eliminated"]:
+            game["current_player"] = next_p
+            break
+
+    await interaction.response.edit_message(embed=render_board_embed(game), view=BlueMarbleGameView(game))
+    ping_msg = await game["channel"].send(f"🔔 {game['current_player'].mention} 님 차례입니다! 주사위를 굴려주세요.")
+    await ping_msg.delete(delay=3)
+
+@bot.command(name="부루마블모집")
+async def bm_lobby(ctx):
+    bluemarble_games[ctx.guild.id] = {"status": "recruiting", "players": [], "channel": ctx.channel}
+    await ctx.send(embed=discord.Embed(title="🎲 부루마블 로비 생성!", description="`!부루마블참가` 를 입력해 참여하세요!", color=0x3498DB))
+
+@bot.command(name="부루마블참가")
+async def bm_join(ctx):
+    game = bluemarble_games.get(ctx.guild.id)
+    if not game or game["status"] != "recruiting":
+        return await ctx.send("❌ 모집 중인 게임이 없습니다.", delete_after=10)
+    if ctx.author in game["players"]:
+        return await ctx.send("❌ 이미 참가하셨습니다.", delete_after=10)
+    game["players"].append(ctx.author)
+    await ctx.send(f"✅ **{ctx.author.display_name}**님 부루마블 참가 완료!")
+
+@bot.command(name="부루마블시작")
+async def bm_start(ctx):
+    game = bluemarble_games.get(ctx.guild.id)
+    if not game or game["status"] != "recruiting":
+        return await ctx.send("❌ 시작할 로비가 없습니다.", delete_after=10)
+    players = game["players"]
+    if len(players) < 2:
+        return await ctx.send("❌ 최소 2명이 필요합니다.", delete_after=10)
+
+    game["status"] = "playing"
+    game["eliminated"] = []
+    game["current_player"] = players[0]
+    game["money"] = {p.id: 300 for p in players}  # 기본 자금 300만 원 시작
+    game["pos"] = {p.id: 0 for p in players}
+    game["island"] = {p.id: 0 for p in players}
+    game["lands"] = {idx: {"owner": None, "level": 0} for idx, space in enumerate(BOARD_SPACES) if space["type"] == "city"}
+    game["fund"] = 0
+    game["state"] = "roll"
+    game["last_action"] = "🎮 부루마블 게임이 시작되었습니다! 첫 주자부터 주사위를 굴려주세요."
+
+    msg = await ctx.send(embed=render_board_embed(game), view=BlueMarbleGameView(game))
+    game["message"] = msg
+    
+    ping_msg = await ctx.send(f"🔔 {game['current_player'].mention} 님 첫 차례입니다!")
+    await ping_msg.delete(delay=3)
+
 # =========================
 # 🎨 로아 스티커 (전체 맵 복원)
 # =========================
