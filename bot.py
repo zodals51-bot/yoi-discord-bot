@@ -1097,13 +1097,13 @@ async def ysc_start(ctx):
 
 
 # =========================
-# 🕵️ 다빈치 코드 시스템 (수정완료 룰)
+# 🕵️ 다빈치 코드 시스템 (정확한 룰 반영)
 # =========================
 davinci_games = {}
 
-class DavinciGuessModal(discord.ui.Modal, title="🕵️ 타일 추리하기"):
+class DavinciGuessModal(discord.ui.Modal, title="🕵️ 타일 추리하기 (색상 + 숫자)"):
     target_idx = discord.ui.TextInput(label="지목할 상대의 타일 번호 (왼쪽부터 1번)", placeholder="예: 2", required=True)
-    guessed_num = discord.ui.TextInput(label="예상하는 숫자 (조커는 -)", placeholder="예: 7", required=True)
+    guessed_input = discord.ui.TextInput(label="색상과 숫자 입력 (예: 흑7, 백-)", placeholder="예: 흑7 또는 백 - (조커는 -)", required=True)
 
     def __init__(self, game_data, target_player):
         super().__init__()
@@ -1114,50 +1114,73 @@ class DavinciGuessModal(discord.ui.Modal, title="🕵️ 타일 추리하기"):
         game = self.game_data
         if interaction.user != game["current_player"]:
             return await interaction.response.send_message("❌ 당신의 차례가 아닙니다!", ephemeral=True)
+            
         try:
             idx = int(self.target_idx.value) - 1
-            guess = self.guessed_num.value.strip()
+            guess_text = self.guessed_input.value.strip()
         except ValueError:
-            return await interaction.response.send_message("❌ 올바른 숫자를 입력해주세요.", ephemeral=True)
+            return await interaction.response.send_message("❌ 올바른 형식으로 입력해주세요.", ephemeral=True)
+            
         target_tiles = game["tiles"][self.target_player.id]
         if idx < 0 or idx >= len(target_tiles):
             return await interaction.response.send_message("❌ 존재하지 않는 타일 번호입니다.", ephemeral=True)
+            
         target_tile = target_tiles[idx]
-        is_correct = (target_tile["is_joker"] and guess in ["-", "조커", "JOKER"]) or (not target_tile["is_joker"] and guess.isdigit() and int(guess) == target_tile["val"])
+        if not target_tile["hidden"]:
+            return await interaction.response.send_message("❌ 이미 공개된 타일입니다!", ephemeral=True)
+
+        # 흑/백 색상 파싱
+        guess_color = None
+        if "흑" in guess_text or "블랙" in guess_text or "black" in guess_text.lower():
+            guess_color = "흑"
+        elif "백" in guess_text or "화이트" in guess_text or "white" in guess_text.lower():
+            guess_color = "백"
+            
+        # 숫자 / 조커(-) 파싱
+        guess_is_joker = False
+        guess_val = None
+        if "-" in guess_text or "조커" in guess_text or "joker" in guess_text.lower():
+            guess_is_joker = True
+            guess_val = -1
+        else:
+            nums = re.findall(r'\d+', guess_text)
+            if nums:
+                guess_val = int(nums[0])
+
+        if not guess_color or (guess_val is None and not guess_is_joker):
+            return await interaction.response.send_message("❌ 색상(흑/백)과 숫자(0~11 또는 조커는 -)를 모두 포함해서 입력해주세요! (예: 흑7, 백-)", ephemeral=True)
+
+        # 정답 판정 (색상과 숫자가 모두 일치해야 함)
+        is_correct = (target_tile["color"] == guess_color) and (
+            (target_tile["is_joker"] and guess_is_joker) or 
+            (not target_tile["is_joker"] and not guess_is_joker and target_tile["val"] == guess_val)
+        )
         
         if is_correct:
+            # 추리 성공 시 상대 타일 오픈
             target_tile["hidden"] = False
+            
+            # 탈락 조건 체크 (모든 타일이 오픈된 플레이어)
             for p in game["players"]:
                 if all(not t["hidden"] for t in game["tiles"][p.id]) and p not in game["eliminated"]:
                     game["eliminated"].append(p)
+                    
             active_players = [p for p in game["players"] if p not in game["eliminated"]]
             if len(active_players) <= 1:
                 winner = active_players[0] if active_players else interaction.user
                 end_embed = discord.Embed(title="🏁 다빈치 코드 게임 종료!", description=f"🏆 승리자: **{winner.mention}** 님!", color=0x2ECC71)
-                return await interaction.response.edit_message(content=f"🎯 **[추리 성공!]** {interaction.user.display_name} 님이 마지막 타일을 맞췄습니다!", embed=end_embed, view=None)
+                return await interaction.response.edit_message(content=f"🎯 **[추리 성공!]** {interaction.user.display_name} 님이 **{self.target_player.display_name}** 님의 타일 **`{target_tile['display']}`**을(를) 정확히 맞추고 승리하셨습니다!", embed=end_embed, view=None)
 
-            drawn_msg = ""
-            if game["pool"]:
-                new_tile = game["pool"].pop(0)
-                my_tiles = game["tiles"][interaction.user.id]
-                my_tiles.append(new_tile)
-                my_tiles.sort(key=lambda x: (99 if x["is_joker"] else x["val"], 0 if x["color"]=="흑" else 1))
-                drawn_msg = f"\n🎴 추리 성공 보상으로 더미에서 타일 `[{new_tile['display']}]`을(를) 가져와 배치했습니다!"
-                try: await interaction.user.send(f"🎴 타일을 가져왔습니다: **`{new_tile['display']}`**")
-                except: pass
-
-            result_text = f"🎯 **[추리 성공! 턴 유지]** {interaction.user.display_name} 님이 **{self.target_player.display_name}** 님의 {idx+1}번째 타일인 **`{target_tile['display']}`**을(를) 맞췄습니다!{drawn_msg}"
+            result_text = f"🎯 **[추리 성공! 턴 유지]** {interaction.user.display_name} 님이 **{self.target_player.display_name}** 님의 {idx+1}번째 타일 **`{target_tile['display']}`**을(를) 맞췄습니다!\n👉 계속해서 추리를 이어가세요!"
+            
+            # 맞히면 턴이 유지되므로 current_player 변경 없이 보드 갱신
             await interaction.response.edit_message(content=result_text, view=None)
             await self.send_board_message(game)
         else:
-            result_text = f"❌ **[추리 실패! 턴 종료]** {interaction.user.display_name} 님이 틀렸습니다!"
-            if game["pool"]:
-                new_tile = game["pool"].pop(0)
-                my_tiles = game["tiles"][interaction.user.id]
-                my_tiles.append(new_tile)
-                my_tiles.sort(key=lambda x: (99 if x["is_joker"] else x["val"], 0 if x["color"]=="흑" else 1))
-                try: await interaction.user.send(f"🎴 추리 실패로 더미에서 타일을 가져왔습니다: **`{new_tile['display']}`**")
-                except: pass
+            # 추리 실패 시 타일 변화 없이 깔끔하게 턴 종료
+            result_text = f"❌ **[추리 실패! 턴 종료]** {interaction.user.display_name} 님이 틀렸습니다! (입력: `{guess_text}`)"
+            
+            # 다음 플레이어로 턴 전환
             curr_idx = game["players"].index(game["current_player"])
             while True:
                 curr_idx = (curr_idx + 1) % len(game["players"])
@@ -1165,15 +1188,28 @@ class DavinciGuessModal(discord.ui.Modal, title="🕵️ 타일 추리하기"):
                 if next_p not in game["eliminated"]:
                     game["current_player"] = next_p
                     break
+                    
             await interaction.response.edit_message(content=result_text, view=None)
             await self.send_board_message(game)
 
     async def send_board_message(self, game):
         embed = discord.Embed(title="🕵️ 다빈치 코드 진행 중", color=0xF1C40F)
-        desc = "".join([f"• **{p.display_name}**{' ◀ (현재 턴)' if p == game['current_player'] else ''}\n  └ " + "".join([f"`[{t['display']}]` " if not t["hidden"] else "`[ ■ ]` " for t in game["tiles"][p.id]]) + "\n" for p in game["players"]])
+        desc = ""
+        for p in game["players"]:
+            board_str = ""
+            for t in game["tiles"][p.id]:
+                if t["hidden"]:
+                    board_str += "`[ ■ ]` "
+                else:
+                    board_str += f"`[{t['display']}]` "
+            turn_mark = " ◀ (현재 턴)" if p == game["current_player"] else ""
+            desc += f"• **{p.display_name}**{turn_mark}\n  └ {board_str}\n"
         embed.description = desc
-        msg = await game["channel"].send(embed=embed, view=DavinciGameView(game))
+        
+        view = DavinciGameView(game)
+        msg = await game["channel"].send(embed=embed, view=view)
         game["message"] = msg
+        
         ping_msg = await game["channel"].send(f"🔔 {game['current_player'].mention} 님 차례입니다!")
         await ping_msg.delete(delay=3)
 
@@ -1192,7 +1228,7 @@ class DavinciTargetButton(discord.ui.Button):
         self.target_player = target_player
     async def callback(self, interaction: discord.Interaction):
         game = self.view.game_data
-        if interaction.user != game["current_player"]: return await interaction.response.send_message("❌ 차례가 아닙니다!", ephemeral=True)
+        if interaction.user != game["current_player"]: return await interaction.response.send_message("❌ 당신의 차례가 아닙니다!", ephemeral=True)
         await interaction.response.send_modal(DavinciGuessModal(game, self.target_player))
 
 class DavinciCheckHandButton(discord.ui.Button):
@@ -1200,12 +1236,14 @@ class DavinciCheckHandButton(discord.ui.Button):
     async def callback(self, interaction: discord.Interaction):
         game = self.view.game_data
         if interaction.user not in game["players"]: return await interaction.response.send_message("❌ 참가자가 아닙니다.", ephemeral=True)
-        await interaction.response.send_message(f"🎴 **[내 타일]**\n" + " ".join([f"`[{t['display']}]`" for t in game["tiles"][interaction.user.id]]), ephemeral=True)
+        tiles = game["tiles"][interaction.user.id]
+        hand_str = " ".join([f"`[{t['display']}]`" for t in tiles])
+        await interaction.response.send_message(f"🎴 **[내 타일 목록]**\n{hand_str}", ephemeral=True)
 
 @bot.command(name="다빈치모집")
 async def dv_lobby(ctx):
     davinci_games[ctx.guild.id] = {"status": "recruiting", "players": [], "channel": ctx.channel}
-    await ctx.send(embed=discord.Embed(title="🕵️ 다빈치 코드 로비 생성!", description="`!다빈치참가` 입력!", color=0xF1C40F))
+    await ctx.send(embed=discord.Embed(title="🕵️ 다빈치 코드 로비 생성!", description="`!다빈치참가` 를 입력해 참여하세요!", color=0xF1C40F))
 
 @bot.command(name="다빈치참가")
 async def dv_join(ctx):
@@ -1218,35 +1256,42 @@ async def dv_join(ctx):
 @bot.command(name="다빈치시작")
 async def dv_start(ctx):
     game = davinci_games.get(ctx.guild.id)
-    if not game or game["status"] != "recruiting": return await ctx.send("❌ 로비가 없습니다.", delete_after=10)
+    if not game or game["status"] != "recruiting": return await ctx.send("❌ 시작할 로비가 없습니다.", delete_after=10)
     players = game["players"]
-    if len(players) < 2: return await ctx.send("❌ 최소 2명 필요", delete_after=10)
+    if len(players) < 2: return await ctx.send("❌ 최소 2명이 필요합니다.", delete_after=10)
     game["status"] = "playing"
     game["eliminated"] = []
+    
     pool = []
     for color in ["흑", "백"]:
         for n in range(12): pool.append({"val": n, "color": color, "is_joker": False, "display": f"{color}{n}", "hidden": True})
         pool.append({"val": -1, "color": color, "is_joker": True, "display": f"{color}-", "hidden": True})
     random.shuffle(pool)
+    
     p_count = len(players)
     tile_count = 7 if p_count == 2 else (4 if p_count == 3 else 3)
+    
     tiles = {}
     for p in players:
         p_tiles = [pool.pop(0) for _ in range(tile_count)]
         p_tiles.sort(key=lambda x: (99 if x["is_joker"] else x["val"], 0 if x["color"]=="흑" else 1))
         tiles[p.id] = p_tiles
-        try: await p.send(embed=discord.Embed(title="🕵️ 다빈치 코드 타일", description=" ".join([f"`[{t['display']}]`" for t in p_tiles]), color=0xF1C40F))
+        try:
+            my_t = " ".join([f"`[{t['display']}]`" for t in p_tiles])
+            await p.send(embed=discord.Embed(title="🕵️ 다빈치 코드 초기 타일", description=my_t, color=0xF1C40F))
         except: pass
+        
     game["pool"] = pool
     game["tiles"] = tiles
     game["current_player"] = players[0]
+    
     embed = discord.Embed(title="🕵️ 다빈치 코드 게임 시작!", color=0xF1C40F)
     embed.description = "".join([f"• **{p.display_name}**\n  └ " + "`[ ■ ] ` * " * len(tiles[p.id]) + "\n" for p in players])
     msg = await ctx.send(embed=embed, view=DavinciGameView(game))
     game["message"] = msg
+    
     ping_msg = await ctx.send(f"🔔 {game['current_player'].mention} 님 첫 차례입니다!")
     await ping_msg.delete(delay=3)
-
 
 # =========================
 # 🦊 라이어 게임 시스템 (주제 투표 + 라이어 찬스 + 제시어 공개)
