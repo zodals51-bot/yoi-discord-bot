@@ -1097,27 +1097,25 @@ async def ysc_start(ctx):
 
 
 # ==========================================================
-# 🕵️ 디스코드판 '다빈치 코드' 보드게임 시스템 (공식 룰 완벽 반영)
+# 🕵️ 디스코드판 '다빈치 코드' 보드게임 시스템 (추리 내역 전체 공개 반영)
 # ==========================================================
 davinci_games = {}
 
 def sort_davinci_tiles(tiles):
     """
-    타일 정렬 함수:
+    타일 정렬 규칙:
     - 숫자는 오름차순
     - 같은 숫자는 백(White)이 흑(Black)보다 왼쪽(앞)
     - 조커(-)는 사용자가 직접 배치한 순서를 유지
     """
     jokers = [t for t in tiles if t["is_joker"]]
     numbers = [t for t in tiles if not t["is_joker"]]
-    # 백(0)이 흑(1)보다 앞으로 오도록 정렬
+    
     numbers.sort(key=lambda x: (x["val"], 0 if x["color"] == "백" else 1))
     
-    # 조커가 없는 경우 숫자로만 정렬된 리스트 반환
     if not jokers:
         return numbers
     
-    # 기존 타일 리스트에서 조커 위치를 유지하며 숫자 타일 재배치
     result = []
     num_idx = 0
     for t in tiles:
@@ -1127,7 +1125,6 @@ def sort_davinci_tiles(tiles):
             if num_idx < len(numbers):
                 result.append(numbers[num_idx])
                 num_idx += 1
-    # 추가된 숫자가 있다면 뒤에 붙임
     while num_idx < len(numbers):
         result.append(numbers[num_idx])
         num_idx += 1
@@ -1137,7 +1134,6 @@ async def start_davinci_turn(game):
     """턴 시작 처리: 더미에서 타일 1장 가져오기 및 알림"""
     current_p = game["current_player"]
     
-    # 바닥에 타일이 남아있으면 1장 가져옴 (1번 규칙)
     if game["pool"]:
         drawn_tile = game["pool"].pop(0)
         drawn_tile["hidden"] = True
@@ -1148,17 +1144,16 @@ async def start_davinci_turn(game):
         game["tiles"][current_p.id] = sort_davinci_tiles(my_tiles)
         
         try:
-            await current_p.send(f"🎴 **[내 턴 시작]** 더미에서 타일 **`[{drawn_tile['display']}]`**을(를) 가져왔습니다!\n조커 위치 변경을 원하시면 게임판의 **`타일 순서 변경`** 버튼을 이용하세요.")
+            await current_p.send(f"🎴 **[내 턴 시작]** 더미에서 타일 **`[{drawn_tile['display']}]`**을(를) 가져왔습니다!\n조커 위치 변경을 원하시면 **`타일 순서 변경`** 버튼을 이용하세요.")
         except:
             pass
     else:
-        # 바닥 타일 소진 시 가져오기 생략 (5번 규칙)
         game["drawn_tile"] = None
 
     await send_davinci_board(game)
 
 async def send_davinci_board(game, extra_text=""):
-    """게임판 출력 및 지목 버튼 배치"""
+    """게임판 출력 (비공개 타일 색상 구분 시각화)"""
     embed = discord.Embed(title="🕵️ 다빈치 코드 진행 중", color=0xF1C40F)
     desc = extra_text + "\n" if extra_text else ""
     
@@ -1166,11 +1161,12 @@ async def send_davinci_board(game, extra_text=""):
         board_str = ""
         for t in game["tiles"][p.id]:
             if t["hidden"]:
-                board_str += "`[ ■ ]` "
+                board_str += "`[ ⬛ ]` " if t["color"] == "흑" else "`[ ⬜ ]` "
             else:
                 board_str += f"`[{t['display']}]` "
         turn_mark = " ◀ (현재 턴)" if p == game["current_player"] else ""
-        desc += f"• **{p.display_name}**{turn_mark} (남은 비공개: {sum(1 for t in game['tiles'][p.id] if t['hidden'])}개)\n  └ {board_str}\n"
+        hidden_count = sum(1 for t in game['tiles'][p.id] if t['hidden'])
+        desc += f"• **{p.display_name}**{turn_mark} (남은 비공개: {hidden_count}개)\n  └ {board_str}\n"
     embed.description = desc
     
     view = DavinciGameView(game)
@@ -1212,9 +1208,9 @@ class DavinciReorderModal(discord.ui.Modal, title="🎴 내 타일 순서 변경
         await interaction.response.send_message(f"✅ 타일 순서가 변경되었습니다!\n**[내 현재 타일]**\n{hand_str}", ephemeral=True)
 
 
-class DavinciGuessModal(discord.ui.Modal, title="🕵️ 타일 추리하기 (색상 + 숫자)"):
+class DavinciGuessModal(discord.ui.Modal, title="🕵️ 타일 추리하기"):
     target_idx = discord.ui.TextInput(label="지목할 상대의 타일 번호 (왼쪽부터 1번)", placeholder="예: 2", required=True)
-    guessed_input = discord.ui.TextInput(label="색상과 숫자 입력 (예: 흑7, 백-)", placeholder="예: 흑7 또는 백- (조커는 -)", required=True)
+    guessed_input = discord.ui.TextInput(label="예상하는 숫자 또는 조커(-)", placeholder="예: 7 또는 백7 또는 -", required=True)
 
     def __init__(self, game_data, target_player):
         super().__init__()
@@ -1240,38 +1236,29 @@ class DavinciGuessModal(discord.ui.Modal, title="🕵️ 타일 추리하기 (�
         if not target_tile["hidden"]:
             return await interaction.response.send_message("❌ 이미 공개된 타일입니다!", ephemeral=True)
 
-        # 색상 파싱
-        guess_color = None
+        specified_color = None
         if "흑" in guess_text or "블랙" in guess_text or "black" in guess_text.lower():
-            guess_color = "흑"
+            specified_color = "흑"
         elif "백" in guess_text or "화이트" in guess_text or "white" in guess_text.lower():
-            guess_color = "백"
+            specified_color = "백"
             
-        # 숫자 / 조커(-) 파싱
-        guess_is_joker = False
-        guess_val = None
-        if "-" in guess_text or "조커" in guess_text or "joker" in guess_text.lower():
-            guess_is_joker = True
-            guess_val = -1
+        guess_is_joker = ("-" in guess_text) or ("조커" in guess_text) or ("joker" in guess_text.lower())
+        nums = re.findall(r'\d+', guess_text)
+        guess_val = int(nums[0]) if nums else None
+
+        if specified_color and specified_color != target_tile["color"]:
+            is_correct = False
         else:
-            nums = re.findall(r'\d+', guess_text)
-            if nums:
-                guess_val = int(nums[0])
+            if guess_is_joker:
+                is_correct = target_tile["is_joker"]
+            elif guess_val is not None:
+                is_correct = (not target_tile["is_joker"]) and (target_tile["val"] == guess_val)
+            else:
+                return await interaction.response.send_message("❌ 올바른 숫자(0~11) 또는 조커(-)를 입력해주세요.", ephemeral=True)
 
-        if not guess_color or (guess_val is None and not guess_is_joker):
-            return await interaction.response.send_message("❌ 색상(흑/백)과 숫자(0~11 또는 조커는 -)를 모두 포함해서 입력해주세요! (예: 흑7, 백-)", ephemeral=True)
-
-        # 정답 판정
-        is_correct = (target_tile["color"] == guess_color) and (
-            (target_tile["is_joker"] and guess_is_joker) or 
-            (not target_tile["is_joker"] and not guess_is_joker and target_tile["val"] == guess_val)
-        )
-        
         if is_correct:
-            # 3번 규칙: 추리가 맞으면 해당 타일 공개
             target_tile["hidden"] = False
             
-            # 탈락 조건 체크 (모든 타일이 공개된 플레이어)
             for p in game["players"]:
                 if all(not t["hidden"] for t in game["tiles"][p.id]) and p not in game["eliminated"]:
                     game["eliminated"].append(p)
@@ -1280,31 +1267,28 @@ class DavinciGuessModal(discord.ui.Modal, title="🕵️ 타일 추리하기 (�
             if len(active_players) <= 1:
                 winner = active_players[0] if active_players else interaction.user
                 end_embed = discord.Embed(title="🏁 다빈치 코드 게임 종료!", description=f"🏆 승리자: **{winner.mention}** 님!", color=0x2ECC71)
-                return await interaction.response.edit_message(content=f"🎯 **[추리 성공!]** {interaction.user.display_name} 님이 **{self.target_player.display_name}** 님의 타일 **`{target_tile['display']}`**을(를) 맞췄습니다!", embed=end_embed, view=None)
+                return await interaction.response.edit_message(content=f"🎯 **[추리 성공!]** {interaction.user.display_name} 님이 **{self.target_player.display_name}** 님의 {idx+1}번째 타일 **`[{target_tile['display']}]`**을(를) 정확히 맞췄습니다!", embed=end_embed, view=None)
 
-            # 4번 규칙: 추리 성공 시 선택권 부여 (계속 추리 vs 차례 마치기)
-            result_text = f"🎯 **[추리 성공!]** {interaction.user.display_name} 님이 **{self.target_player.display_name}** 님의 {idx+1}번째 타일 **`{target_tile['display']}`**을(를) 맞췄습니다!\n👉 아래 버튼을 눌러 행동을 선택하세요."
+            # 💡 [개선] 지목한 대상, 타일 번호, 추리 내용을 명확히 공유
+            result_text = f"🎯 **[추리 성공!]** {interaction.user.display_name} 님이 **{self.target_player.display_name}** 님의 {idx+1}번째 타일을 **`[{guess_text}]`**(으)로 맞춰 공개되었습니다! (`[{target_tile['display']}]`)\n👉 아래 버튼을 눌러 행동을 선택하세요."
             choice_view = DavinciTurnChoiceView(game)
             await interaction.response.edit_message(content=result_text, view=choice_view)
 
         else:
-            # 추리 실패 시
+            # 💡 [핵심 개선] 틀렸을 때도 지목한 대상, 타일 번호, 입력한 추리 내용을 채널 전체에 명확히 방송
+            fail_detail = f"❌ **[추리 실패!]** {interaction.user.display_name} 님이 **{self.target_player.display_name}** 님의 **{idx+1}번째 타일**을 **`[{guess_text}]`**(으)로 지목했으나 틀렸습니다!"
+            
             if game["drawn_tile"] and game["drawn_tile"]["hidden"]:
-                # 4번 규칙: 이번 차례에 가져왔던 타일 공개 후 턴 넘김
                 game["drawn_tile"]["hidden"] = False
-                result_text = f"❌ **[추리 실패!]** {interaction.user.display_name} 님이 틀렸습니다! 이번 턴에 가져온 타일 **`[{game['drawn_tile']['display']}]`**이(가) 공개됩니다!"
-                
-                # 다음 플레이어로 턴 전환
+                result_text = f"{fail_detail}\n💥 페널티로 이번 턴에 가져온 타일 **`[{game['drawn_tile']['display']}]`**이(가) 공개됩니다!"
                 await advance_davinci_next_turn(game, interaction, result_text)
             else:
-                # 5번 규칙: 바닥에 타일이 없었을 경우, 아직 공개되지 않은 타일 중 1개 직접 선택하여 공개
-                result_text = f"❌ **[추리 실패!]** {interaction.user.display_name} 님이 틀렸습니다!\n바닥에 타일이 없으므로 **공개할 나의 타일**을 하나 선택하세요."
+                result_text = f"{fail_detail}\n💥 바닥에 타일이 없으므로 **공개할 나의 타일**을 하나 선택하세요."
                 reveal_view = DavinciSelfRevealView(game)
                 await interaction.response.edit_message(content=result_text, view=reveal_view)
 
 
 class DavinciTurnChoiceView(discord.ui.View):
-    """추리 성공 시 4번 규칙 (계속 추리하기 / 차례 마치기) 선택 UI"""
     def __init__(self, game_data):
         super().__init__(timeout=60)
         self.game_data = game_data
@@ -1327,7 +1311,6 @@ class DavinciTurnChoiceView(discord.ui.View):
 
 
 class DavinciSelfRevealView(discord.ui.View):
-    """바닥 타일이 없을 때 추리 실패 시 자신의 공개할 타일 선택 UI (5번 규칙)"""
     def __init__(self, game_data):
         super().__init__(timeout=60)
         self.game_data = game_data
@@ -1358,7 +1341,6 @@ class DavinciSelfRevealButton(discord.ui.Button):
 
 
 async def advance_davinci_next_turn(game, interaction, result_text):
-    """다음 턴으로 넘겨주는 공통 함수"""
     curr_idx = game["players"].index(game["current_player"])
     while True:
         curr_idx = (curr_idx + 1) % len(game["players"])
@@ -1442,7 +1424,6 @@ async def dv_start(ctx):
     game["status"] = "playing"
     game["eliminated"] = []
     
-    # 덱 구성 (흑 0~11, 백 0~11, 조커 각 색상별 1장씩 총 26장)
     pool = []
     for color in ["흑", "백"]:
         for n in range(12): 
@@ -1450,7 +1431,6 @@ async def dv_start(ctx):
         pool.append({"val": -1, "color": color, "is_joker": True, "display": f"{color}-", "hidden": True})
     random.shuffle(pool)
     
-    # 인원수별 초기 패 개수 (2인: 7개, 3인: 4개, 4인 이상: 3개)
     p_count = len(players)
     tile_count = 7 if p_count == 2 else (4 if p_count == 3 else 3)
     
@@ -1469,7 +1449,6 @@ async def dv_start(ctx):
     game["tiles"] = tiles
     game["current_player"] = players[0]
     
-    # 1st Player Turn Start
     await start_davinci_turn(game)
 
 # =========================
