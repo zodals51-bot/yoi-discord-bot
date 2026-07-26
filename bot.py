@@ -542,22 +542,66 @@ class CubeView(discord.ui.View):
 
 
 # =========================
-# 🛡️ 길드 인증 시스템 (!인증패널)
+# 🛡️ 길드 인증 시스템 (!인증패널) - 역할 이름으로 자동 추적
 # =========================
+# 💡 디스코드 서버에 있는 역할 이름을 그대로 적어주세요! (예: "길드원", "인증완료" 등)
+VERIFIED_ROLE_NAME = "길드원"
+
 class VerifyModal(discord.ui.Modal, title="로스트아크 인증"):
-    character_name = discord.ui.TextInput(label="캐릭터 이름", required=True)
+    character_name = discord.ui.TextInput(label="대표 캐릭터 이름", placeholder="예: 모코코", required=True)
+
     async def on_submit(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
-        profile = call_lostark_api("profiles", self.character_name.value)
-        if not profile: return await interaction.followup.send("❌ 캐릭터 정보를 찾을 수 없습니다.", ephemeral=True)
-        member = interaction.guild.get_member(interaction.user.id)
-        if member:
-            try: await member.edit(nick=f"{profile.get('CharacterName')}/{profile.get('CharacterClassName')}")
-            except: pass
-        await interaction.followup.send(embed=discord.Embed(title="✅ 인증 완료", color=0x57F287), ephemeral=True)
+        
+        # 1. 로스트아크 API 캐릭터 검색
+        profile = call_lostark_api("profiles", self.character_name.value.strip())
+        if not profile or not profile.get("CharacterName"):
+            return await interaction.followup.send("❌ 캐릭터 정보를 찾을 수 없습니다. (닉네임 오타 확인)", ephemeral=True)
+
+        char_name = profile.get('CharacterName')
+        char_class = profile.get('CharacterClassName', '')
+        new_nick = f"{char_name}/{char_class}" if char_class else char_name
+
+        # 디스코드 닉네임 글자 수 제한(32자) 처리
+        if len(new_nick) > 32:
+            new_nick = new_nick[:32]
+
+        member = interaction.user
+        msg_details = []
+
+        # 2. 닉네임 변경 시도
+        try:
+            await member.edit(nick=new_nick)
+            msg_details.append(f"🏷️ **닉네임 변경 성공**: `{new_nick}`")
+        except discord.Forbidden:
+            msg_details.append("⚠️ **닉네임 변경 실패**: 봇의 권한이 부족하거나, 서버 소유자(어드민)의 닉네임은 변경할 수 없습니다.")
+        except Exception as e:
+            msg_details.append(f"⚠️ **닉네임 변경 오류**: `{e}`")
+
+        # 3. ID 없이 [역할 이름]으로 서버에서 바로 찾아서 부여
+        role = discord.utils.get(interaction.guild.roles, name=VERIFIED_ROLE_NAME)
+        if role:
+            try:
+                await member.add_roles(role)
+                msg_details.append(f"🛡️ **역할 부여 성공**: `{role.name}`")
+            except discord.Forbidden:
+                msg_details.append("⚠️ **역할 부여 실패**: 봇 역할 순서를 [서버 설정 > 역할]에서 '부여할 역할'보다 **위**로 올려주세요.")
+            except Exception as e:
+                msg_details.append(f"⚠️ **역할 부여 오류**: `{e}`")
+        else:
+            msg_details.append(f"⚠️ **역할 찾기 실패**: 서버에 `[{VERIFIED_ROLE_NAME}]` 이름의 역할이 없습니다. 디스코드 역할 이름을 확인해 주세요.")
+
+        embed = discord.Embed(
+            title="✅ 로스트아크 길드 인증 결과",
+            description="\n".join(msg_details),
+            color=0x57F287 if "성공" in "".join(msg_details) else 0xE74C3C
+        )
+        await interaction.followup.send(embed=embed, ephemeral=True)
 
 class VerifyView(discord.ui.View):
-    def __init__(self): super().__init__(timeout=None)
+    def __init__(self): 
+        super().__init__(timeout=None)
+
     @discord.ui.button(label="인증하기", style=discord.ButtonStyle.green, custom_id="verify_btn")
     async def verify(self, interaction: discord.Interaction, button: discord.ui.Button): 
         await interaction.response.send_modal(VerifyModal())
