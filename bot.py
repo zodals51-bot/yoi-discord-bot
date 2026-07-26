@@ -542,10 +542,11 @@ class CubeView(discord.ui.View):
 
 
 # =========================
-# 🛡️ 길드 인증 시스템 (!인증패널) - 역할 이름으로 자동 추적
+# 🛡️ 길드 인증 시스템 (!인증패널) - 길드원/외부인 자동 판별
 # =========================
-# 💡 디스코드 서버에 있는 역할 이름을 그대로 적어주세요! (예: "길드원", "인증완료" 등)
-VERIFIED_ROLE_NAME = "길드원"
+MY_LOSTARK_GUILD = "요이"   # 👈 1. 본인의 실제 로스트아크 인게임 길드명을 적어주세요!
+GUILD_MEMBER_ROLE_NAME = "길드원" # 👈 2. 길드원에게 줄 디스코드 역할 이름
+GUEST_ROLE_NAME = "외부인"        # 👈 3. 외부인/손님에게 줄 디스코드 역할 이름
 
 class VerifyModal(discord.ui.Modal, title="로스트아크 인증"):
     character_name = discord.ui.TextInput(label="대표 캐릭터 이름", placeholder="예: 모코코", required=True)
@@ -560,9 +561,9 @@ class VerifyModal(discord.ui.Modal, title="로스트아크 인증"):
 
         char_name = profile.get('CharacterName')
         char_class = profile.get('CharacterClassName', '')
+        in_game_guild = profile.get('GuildName', '')  # 인게임 길드명 가져오기
+        
         new_nick = f"{char_name}/{char_class}" if char_class else char_name
-
-        # 디스코드 닉네임 글자 수 제한(32자) 처리
         if len(new_nick) > 32:
             new_nick = new_nick[:32]
 
@@ -578,21 +579,29 @@ class VerifyModal(discord.ui.Modal, title="로스트아크 인증"):
         except Exception as e:
             msg_details.append(f"⚠️ **닉네임 변경 오류**: `{e}`")
 
-        # 3. ID 없이 [역할 이름]으로 서버에서 바로 찾아서 부여
-        role = discord.utils.get(interaction.guild.roles, name=VERIFIED_ROLE_NAME)
+        # 3. 인게임 길드 확인 후 역할 자동 판별
+        if in_game_guild == MY_LOSTARK_GUILD:
+            target_role_name = GUILD_MEMBER_ROLE_NAME
+            guild_status = f"🏰 인게임 길드원 확인 (`{in_game_guild}`)"
+        else:
+            target_role_name = GUEST_ROLE_NAME
+            guild_status = f"👤 외부인 확인 (소속 길드: `{in_game_guild if in_game_guild else '없음'}`)"
+
+        # 역할 지급
+        role = discord.utils.get(interaction.guild.roles, name=target_role_name)
         if role:
             try:
                 await member.add_roles(role)
-                msg_details.append(f"🛡️ **역할 부여 성공**: `{role.name}`")
+                msg_details.append(f"{guild_status}\n🛡️ **역할 부여 성공**: `{role.name}`")
             except discord.Forbidden:
                 msg_details.append("⚠️ **역할 부여 실패**: 봇 역할 순서를 [서버 설정 > 역할]에서 '부여할 역할'보다 **위**로 올려주세요.")
             except Exception as e:
                 msg_details.append(f"⚠️ **역할 부여 오류**: `{e}`")
         else:
-            msg_details.append(f"⚠️ **역할 찾기 실패**: 서버에 `[{VERIFIED_ROLE_NAME}]` 이름의 역할이 없습니다. 디스코드 역할 이름을 확인해 주세요.")
+            msg_details.append(f"⚠️ **역할 찾기 실패**: 서버에 `[{target_role_name}]` 이름의 역할이 없습니다.")
 
         embed = discord.Embed(
-            title="✅ 로스트아크 길드 인증 결과",
+            title="✅ 로스트아크 인증 결과",
             description="\n".join(msg_details),
             color=0x57F287 if "성공" in "".join(msg_details) else 0xE74C3C
         )
