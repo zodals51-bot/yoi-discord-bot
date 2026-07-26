@@ -1997,4 +1997,3 @@ async def 큐브계산기(ctx):
     await ctx.send(embed=discord.Embed(title="🎲 큐브 매칭", color=0x2B2D31), view=CubeView(), delete_after=900)
 
 bot.run(DISCORD_TOKEN)
-bot.run(DISCORD_TOKEN)
