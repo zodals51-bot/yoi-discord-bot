@@ -475,7 +475,7 @@ async def create_raid_party(ctx, size: int = None, *, title: str = "공격대 �
     
 
 # =========================
-# 🎲 큐브 매칭 정산 시스템 (!큐브계산기)
+# 🎲 큐브 매칭 정산 시스템 (!큐브계산기 - 3배/1배 믹스 매칭 지원)
 # =========================
 class CubeCalculatorModal(discord.ui.Modal, title="🎲 캐릭터별 큐브 매칭 정산"):
     my_tickets = discord.ui.TextInput(label="내 캐릭별 티켓 현황", style=discord.TextStyle.long, required=True)
@@ -498,39 +498,72 @@ class CubeCalculatorModal(discord.ui.Modal, title="🎲 캐릭터별 큐브 매�
         partner = self.parse_tickets_by_char(self.partner_tickets.value)
         embed = discord.Embed(title="📊 캐릭터별 최적 큐브 동선 설계", color=0x00FFFF)
         has_data = False
+
         for stage in [4, 3, 2, 1]:
             my_chars = {k: v for k, v in me[stage].items() if v > 0}
             partner_chars = {k: v for k, v in partner[stage].items() if v > 0}
             if not my_chars and not partner_chars: continue
             has_data = True
-            stage_text = "**🔹 [3배 소모 조합]**\n"
-            triple_found = False
+
+            stage_text = ""
+
+            # 1단계: 3배 ⚔️ 3배 조합 (서로 3장 이상 소모)
+            triple_text = ""
             for m_char in list(my_chars.keys()):
                 for p_char in list(partner_chars.keys()):
                     if my_chars[m_char] >= 3 and partner_chars[p_char] >= 3:
                         pan = min(my_chars[m_char] // 3, partner_chars[p_char] // 3)
                         if pan > 0:
-                            stage_text += f"➔ 나의 **[{m_char}]** ⚔️ 상대 **[{p_char}]** ➜ **3배로 {pan}판**\n"
+                            triple_text += f"➔ 나의 **[{m_char}]**(3배) ⚔️ 상대 **[{p_char}]**(3배) ➜ **{pan}판**\n"
                             my_chars[m_char] -= pan * 3
                             partner_chars[p_char] -= pan * 3
-                            triple_found = True
-            if not triple_found: stage_text += "➔ 3배 조합이 없습니다.\n"
+
+            # 2단계: 3배 ⚔️ 1배 믹스 조합 (한 명은 3장, 한 명은 1장 소모하여 1판 진행)
+            mix_text = ""
+            # (1) 내 캐릭 3장(3배) ⚔️ 상대 캐릭 1장(1배)
+            for m_char in list(my_chars.keys()):
+                for p_char in list(partner_chars.keys()):
+                    if my_chars[m_char] >= 3 and partner_chars[p_char] >= 1:
+                        pan = min(my_chars[m_char] // 3, partner_chars[p_char])
+                        if pan > 0:
+                            mix_text += f"➔ 나의 **[{m_char}]**(3배) ⚔️ 상대 **[{p_char}]**(1배) ➜ **{pan}판**\n"
+                            my_chars[m_char] -= pan * 3
+                            partner_chars[p_char] -= pan
             
-            stage_text += "\n**🔸 [1배 소모 및 잔여 믹스]**\n"
-            single_found = False
-            my_remains = {k: v for k, v in my_chars.items() if v > 0}
-            partner_remains = {k: v for k, v in partner_chars.items() if v > 0}
-            for m_char in list(my_remains.keys()):
-                for p_char in list(partner_remains.keys()):
-                    if my_remains[m_char] > 0 and partner_remains[p_char] > 0:
-                        pan = min(my_remains[m_char], partner_remains[p_char])
-                        stage_text += f"➔ 나의 **[{m_char}]** ({my_remains[m_char]}장) ⚔️ 상대 **[{p_char}]** ({partner_remains[p_char]}장) ➜ **1배로 {pan}판**\n"
-                        my_remains[m_char] -= pan
-                        partner_remains[p_char] -= pan
-                        single_found = True
-            if not single_found and triple_found: stage_text += "➔ 깔끔하게 정산되었습니다!\n"
-            embed.add_field(name=f"▶️ {stage}해금 큐브 가이드", value=stage_text, inline=False)
-        
+            # (2) 내 캐릭 1장(1배) ⚔️ 상대 캐릭 3장(3배)
+            for m_char in list(my_chars.keys()):
+                for p_char in list(partner_chars.keys()):
+                    if my_chars[m_char] >= 1 and partner_chars[p_char] >= 3:
+                        pan = min(my_chars[m_char], partner_chars[p_char] // 3)
+                        if pan > 0:
+                            mix_text += f"➔ 나의 **[{m_char}]**(1배) ⚔️ 상대 **[{p_char}]**(3배) ➜ **{pan}판**\n"
+                            my_chars[m_char] -= pan
+                            partner_chars[p_char] -= pan * 3
+
+            # 3단계: 1배 ⚔️ 1배 잔여 조합 (서로 1장씩 소모)
+            single_text = ""
+            for m_char in list(my_chars.keys()):
+                for p_char in list(partner_chars.keys()):
+                    if my_chars[m_char] >= 1 and partner_chars[p_char] >= 1:
+                        pan = min(my_chars[m_char], partner_chars[p_char])
+                        if pan > 0:
+                            single_text += f"➔ 나의 **[{m_char}]**(1배) ⚔️ 상대 **[{p_char}]**(1배) ➜ **{pan}판**\n"
+                            my_chars[m_char] -= pan
+                            partner_chars[p_char] -= pan
+
+            # 결과 텍스트 출력 조합
+            if triple_text:
+                stage_text += "**🔹 [3배 ⚔️ 3배 조합]**\n" + triple_text + "\n"
+            if mix_text:
+                stage_text += "**🔸 [3배 ⚔️ 1배 믹스 조합]**\n" + mix_text + "\n"
+            if single_text:
+                stage_text += "**🔻 [1배 ⚔️ 1배 잔여 조합]**\n" + single_text + "\n"
+
+            if not stage_text:
+                stage_text = "➔ 매칭 가능한 티켓 조합이 없습니다.\n"
+
+            embed.add_field(name=f"▶️ {stage}해금 큐브 가이드", value=stage_text.strip(), inline=False)
+
         if not has_data: return await interaction.followup.send("❌ 티켓 데이터를 파싱하지 못했습니다.")
         await interaction.followup.send(embed=embed)
 
@@ -539,7 +572,6 @@ class CubeView(discord.ui.View):
     @discord.ui.button(label="큐브 정산하기", style=discord.ButtonStyle.blurple, custom_id="cube_calc_btn")
     async def cube_calc(self, interaction: discord.Interaction, button: discord.ui.Button): 
         await interaction.response.send_modal(CubeCalculatorModal())
-
 
 # =========================
 # 🛡️ 길드 인증 시스템 (!인증패널) - 길드원/외부인 자동 판별
