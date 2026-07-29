@@ -475,7 +475,7 @@ async def create_raid_party(ctx, size: int = None, *, title: str = "공격대 �
     
 
 # =========================
-# 🎲 큐브 매칭 정산 시스템 (!큐브계산기 - 3배/1배 믹스 매칭 지원)
+# 🎲 큐브 매칭 정산 시스템 (!큐브계산기 - 다른 캐릭터 엮어빼기 가이드 강화)
 # =========================
 class CubeCalculatorModal(discord.ui.Modal, title="🎲 캐릭터별 큐브 매칭 정산"):
     my_tickets = discord.ui.TextInput(label="내 캐릭별 티켓 현황", style=discord.TextStyle.long, required=True)
@@ -507,60 +507,82 @@ class CubeCalculatorModal(discord.ui.Modal, title="🎲 캐릭터별 큐브 매�
 
             stage_text = ""
 
-            # 1단계: 3배 ⚔️ 3배 조합 (서로 3장 이상 소모)
-            triple_text = ""
+            # 1단계: 3배 ⚔️ 3배 매칭
+            triple_matches = []
             for m_char in list(my_chars.keys()):
                 for p_char in list(partner_chars.keys()):
                     if my_chars[m_char] >= 3 and partner_chars[p_char] >= 3:
                         pan = min(my_chars[m_char] // 3, partner_chars[p_char] // 3)
                         if pan > 0:
-                            triple_text += f"➔ 나의 **[{m_char}]**(3배) ⚔️ 상대 **[{p_char}]**(3배) ➜ **{pan}판**\n"
+                            triple_matches.append((m_char, p_char, pan))
                             my_chars[m_char] -= pan * 3
                             partner_chars[p_char] -= pan * 3
 
-            # 2단계: 3배 ⚔️ 1배 믹스 조합 (한 명은 3장, 한 명은 1장 소모하여 1판 진행)
-            mix_text = ""
-            # (1) 내 캐릭 3장(3배) ⚔️ 상대 캐릭 1장(1배)
+            # 2단계: 3배 ⚔️ 1배 믹스 매칭
+            mix_matches = []
             for m_char in list(my_chars.keys()):
                 for p_char in list(partner_chars.keys()):
                     if my_chars[m_char] >= 3 and partner_chars[p_char] >= 1:
                         pan = min(my_chars[m_char] // 3, partner_chars[p_char])
                         if pan > 0:
-                            mix_text += f"➔ 나의 **[{m_char}]**(3배) ⚔️ 상대 **[{p_char}]**(1배) ➜ **{pan}판**\n"
+                            mix_matches.append((m_char, "3배", p_char, "1배", pan))
                             my_chars[m_char] -= pan * 3
                             partner_chars[p_char] -= pan
-            
-            # (2) 내 캐릭 1장(1배) ⚔️ 상대 캐릭 3장(3배)
+
             for m_char in list(my_chars.keys()):
                 for p_char in list(partner_chars.keys()):
                     if my_chars[m_char] >= 1 and partner_chars[p_char] >= 3:
                         pan = min(my_chars[m_char], partner_chars[p_char] // 3)
                         if pan > 0:
-                            mix_text += f"➔ 나의 **[{m_char}]**(1배) ⚔️ 상대 **[{p_char}]**(3배) ➜ **{pan}판**\n"
+                            mix_matches.append((m_char, "1배", p_char, "3배", pan))
                             my_chars[m_char] -= pan
                             partner_chars[p_char] -= pan * 3
 
-            # 3단계: 1배 ⚔️ 1배 잔여 조합 (서로 1장씩 소모)
-            single_text = ""
+            # 3단계: 💡 다른 캐릭터끼리 엮어서 1배 소모하는 매칭
+            single_matches = []
             for m_char in list(my_chars.keys()):
                 for p_char in list(partner_chars.keys()):
                     if my_chars[m_char] >= 1 and partner_chars[p_char] >= 1:
                         pan = min(my_chars[m_char], partner_chars[p_char])
                         if pan > 0:
-                            single_text += f"➔ 나의 **[{m_char}]**(1배) ⚔️ 상대 **[{p_char}]**(1배) ➜ **{pan}판**\n"
+                            single_matches.append((m_char, p_char, pan))
                             my_chars[m_char] -= pan
                             partner_chars[p_char] -= pan
 
-            # 결과 텍스트 출력 조합
-            if triple_text:
-                stage_text += "**🔹 [3배 ⚔️ 3배 조합]**\n" + triple_text + "\n"
-            if mix_text:
-                stage_text += "**🔸 [3배 ⚔️ 1배 믹스 조합]**\n" + mix_text + "\n"
-            if single_text:
-                stage_text += "**🔻 [1배 ⚔️ 1배 잔여 조합]**\n" + single_text + "\n"
+            # 4단계: 상대방/나의 총 티켓 수 자체가 모자라 짝을 못 맞추는 순수 잔여 티켓
+            leftovers_my = {k: v for k, v in my_chars.items() if v > 0}
+            leftovers_partner = {k: v for k, v in partner_chars.items() if v > 0}
 
-            if not stage_text:
-                stage_text = "➔ 매칭 가능한 티켓 조합이 없습니다.\n"
+            # --- 결과 텍스트 조합 ---
+            if triple_matches:
+                stage_text += "**🔹 [3배 ⚔️ 3배 매칭]**\n"
+                for m, p, pan in triple_matches:
+                    stage_text += f"➔ 나의 **[{m}]** ⚔️ 상대 **[{p}]** ➜ **3배로 {pan}판**\n"
+                stage_text += "\n"
+
+            if mix_matches:
+                stage_text += "**🔸 [3배 ⚔️ 1배 믹스 매칭]**\n"
+                for m, mb, p, pb, pan in mix_matches:
+                    stage_text += f"➔ 나의 **[{m}]**({mb}) ⚔️ 상대 **[{p}]**({pb}) ➜ **{pan}판**\n"
+                stage_text += "\n"
+
+            if single_matches:
+                stage_text += "**🔄 [다른 캐릭터 엮어 빼기 (1배 매칭)]**\n"
+                for m, p, pan in single_matches:
+                    stage_text += f"➔ 나의 **[{m}]** ⚔️ 상대 **[{p}]** ➜ **1배로 {pan}판** *(남는 티켓 엮어서 같이 소모!)*\n"
+                stage_text += "\n"
+
+            if leftovers_my or leftovers_partner:
+                stage_text += "**🚫 [짝이 없어 함께할 수 없는 순수 남은 티켓]**\n"
+                for m, cnt in leftovers_my.items():
+                    stage_text += f"• 나의 **[{m}]**: `{cnt}장` 남음\n"
+                for p, cnt in leftovers_partner.items():
+                    stage_text += f"• 상대 **[{p}]**: `{cnt}장` 남음\n"
+                stage_text += "*(상대방/나의 총 티켓 수 자체가 부족하여 혼자 진행하셔야 합니다)*\n"
+            elif stage_text:
+                stage_text += "✨ **서로의 다른 캐릭터까지 엮어서 100% 깔끔하게 정산 완료했습니다!**\n"
+            else:
+                stage_text = "➔ 매칭할 수 있는 티켓이 없습니다.\n"
 
             embed.add_field(name=f"▶️ {stage}해금 큐브 가이드", value=stage_text.strip(), inline=False)
 
