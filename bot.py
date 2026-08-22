@@ -596,11 +596,12 @@ class CubeView(discord.ui.View):
         await interaction.response.send_modal(CubeCalculatorModal())
 
 # =========================
-# 🛡️ 길드 인증 시스템 (!인증패널) - 길드원/외부인 자동 판별
+# 🛡️ 길드 인증 시스템 (!인증패널) - 길드원/외부인/직업역할 자동 판별 및 이전역할 제거
 # =========================
-MY_LOSTARK_GUILD = "요이"   # 👈 1. 본인의 실제 로스트아크 인게임 길드명을 적어주세요!
+MY_LOSTARK_GUILD = "요이"       # 👈 1. 본인의 실제 로스트아크 인게임 길드명
 GUILD_MEMBER_ROLE_NAME = "길드원" # 👈 2. 길드원에게 줄 디스코드 역할 이름
 GUEST_ROLE_NAME = "외부인"        # 👈 3. 외부인/손님에게 줄 디스코드 역할 이름
+UNVERIFIED_ROLE_NAME = "인증대기" # 👈 4. 인증 완료 시 제거할 기존 역할 이름 (필요시 이름 변경)
 
 class VerifyModal(discord.ui.Modal, title="로스트아크 인증"):
     character_name = discord.ui.TextInput(label="대표 캐릭터 이름", placeholder="예: 모코코", required=True)
@@ -614,8 +615,8 @@ class VerifyModal(discord.ui.Modal, title="로스트아크 인증"):
             return await interaction.followup.send("❌ 캐릭터 정보를 찾을 수 없습니다. (닉네임 오타 확인)", ephemeral=True)
 
         char_name = profile.get('CharacterName')
-        char_class = profile.get('CharacterClassName', '')
-        in_game_guild = profile.get('GuildName', '')  # 인게임 길드명 가져오기
+        char_class = profile.get('CharacterClassName', '') # 예: 버서커, 기상천외, 도화가 등
+        in_game_guild = profile.get('GuildName', '')       # 인게임 길드명
         
         new_nick = f"{char_name}/{char_class}" if char_class else char_name
         if len(new_nick) > 32:
@@ -629,11 +630,11 @@ class VerifyModal(discord.ui.Modal, title="로스트아크 인증"):
             await member.edit(nick=new_nick)
             msg_details.append(f"🏷️ **닉네임 변경 성공**: `{new_nick}`")
         except discord.Forbidden:
-            msg_details.append("⚠️ **닉네임 변경 실패**: 봇의 권한이 부족하거나, 서버 소유자(어드민)의 닉네임은 변경할 수 없습니다.")
+            msg_details.append("⚠️ **닉네임 변경 실패**: 봇 권한이 부족하거나, 서버 소유자(어드민) 계정입니다.")
         except Exception as e:
             msg_details.append(f"⚠️ **닉네임 변경 오류**: `{e}`")
 
-        # 3. 인게임 길드 확인 후 역할 자동 판별
+        # 3. 길드원 / 외부인 역할 부여
         if in_game_guild == MY_LOSTARK_GUILD:
             target_role_name = GUILD_MEMBER_ROLE_NAME
             guild_status = f"🏰 인게임 길드원 확인 (`{in_game_guild}`)"
@@ -641,23 +642,46 @@ class VerifyModal(discord.ui.Modal, title="로스트아크 인증"):
             target_role_name = GUEST_ROLE_NAME
             guild_status = f"👤 외부인 확인 (소속 길드: `{in_game_guild if in_game_guild else '없음'}`)"
 
-        # 역할 지급
-        role = discord.utils.get(interaction.guild.roles, name=target_role_name)
-        if role:
+        target_role = discord.utils.get(interaction.guild.roles, name=target_role_name)
+        if target_role:
             try:
-                await member.add_roles(role)
-                msg_details.append(f"{guild_status}\n🛡️ **역할 부여 성공**: `{role.name}`")
+                await member.add_roles(target_role)
+                msg_details.append(f"{guild_status}\n🛡️ **신분 역할 부여**: `{target_role.name}`")
             except discord.Forbidden:
-                msg_details.append("⚠️ **역할 부여 실패**: 봇 역할 순서를 [서버 설정 > 역할]에서 '부여할 역할'보다 **위**로 올려주세요.")
+                msg_details.append("⚠️ **신분 역할 부여 실패**: 봇 역할 순서를 [서버 설정 > 역할]에서 더 위로 올려주세요.")
             except Exception as e:
-                msg_details.append(f"⚠️ **역할 부여 오류**: `{e}`")
+                msg_details.append(f"⚠️ **신분 역할 부여 오류**: `{e}`")
         else:
             msg_details.append(f"⚠️ **역할 찾기 실패**: 서버에 `[{target_role_name}]` 이름의 역할이 없습니다.")
 
+        # 4. ⚔️ 직업 역할 자동 부여 (로아 직업명과 서버 역할명이 동일해야 함)
+        if char_class:
+            class_role = discord.utils.get(interaction.guild.roles, name=char_class)
+            if class_role:
+                try:
+                    await member.add_roles(class_role)
+                    msg_details.append(f"⚔️ **직업 역할 부여**: `{class_role.name}`")
+                except discord.Forbidden:
+                    msg_details.append(f"⚠️ **직업 역할 부여 실패**: `{char_class}` (봇 권한 부족)")
+                except Exception as e:
+                    msg_details.append(f"⚠️ **직업 역할 부여 오류**: `{e}`")
+            else:
+                msg_details.append(f"ℹ️ **직업 역할 미부여**: 서버에 `[{char_class}]` 이름의 역할이 없습니다.")
+
+        # 5. 🗑️ 기존 '인증대기' 역할 제거
+        unverified_role = discord.utils.get(interaction.guild.roles, name=UNVERIFIED_ROLE_NAME)
+        if unverified_role and unverified_role in member.roles:
+            try:
+                await member.remove_roles(unverified_role)
+                msg_details.append(f"🗑️ **기존 역할 제거**: `{unverified_role.name}`")
+            except Exception as e:
+                msg_details.append(f"⚠️ **기존 역할 제거 실패**: `{e}`")
+
+        # 최종 임베드 결과 응답
         embed = discord.Embed(
             title="✅ 로스트아크 인증 결과",
             description="\n".join(msg_details),
-            color=0x57F287 if "성공" in "".join(msg_details) else 0xE74C3C
+            color=0x57F287 if "성공" in "".join(msg_details) or "부여" in "".join(msg_details) else 0xE74C3C
         )
         await interaction.followup.send(embed=embed, ephemeral=True)
 
@@ -668,7 +692,6 @@ class VerifyView(discord.ui.View):
     @discord.ui.button(label="인증하기", style=discord.ButtonStyle.green, custom_id="verify_btn")
     async def verify(self, interaction: discord.Interaction, button: discord.ui.Button): 
         await interaction.response.send_modal(VerifyModal())
-
 
 # =========================
 # 💰 원정대 주간 예상 수익 계산기 (!수익)
