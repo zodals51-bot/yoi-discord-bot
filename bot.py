@@ -8,6 +8,8 @@ import asyncio
 from datetime import datetime
 from dotenv import load_dotenv
 import random
+import asyncio
+from datetime import datetime, timedelta
 
 load_dotenv()
 
@@ -2097,6 +2099,44 @@ STICKER_MAP = {
 }
 
 # =========================
+# ⏰ 홍보 6시간 알람 시스템 (!홍보 / !홍보완료 / !홍보알람)
+# =========================
+@bot.command(name="홍보", aliases=["홍보완료", "홍보알람"])
+async def promo_alarm(ctx):
+    # 1. 알람 울릴 시간 계산 (현재 시간 + 6시간)
+    target_time = datetime.now() + timedelta(hours=6)
+    time_str = target_time.strftime("%H시 %M분")
+
+    # 2. 알람 등록 완료 안내 메시지 전송
+    embed = discord.Embed(
+        title="⏰ 홍보 알람 등록 완료",
+        description=(
+            f"{ctx.author.mention}님, **6시간 뒤 ({time_str})**에 알람을 설정했습니다!\n"
+            f"쿨타임이 지나면 이 채널에서 태그(@)로 알려드릴게요."
+        ),
+        color=0x3498DB,
+    )
+    await ctx.send(embed=embed)
+
+    # 3. 백그라운드에서 6시간(21,600초) 카운트다운 후 알람 발송
+    async def send_reminder():
+        await asyncio.sleep(6 * 3600)  # 6시간 = 21,600초
+
+        alarm_embed = discord.Embed(
+            title="🔔 홍보 쿨타임 종료!",
+            description=(
+                f"{ctx.author.mention}님, 홍보글을 올리신 지 **6시간**이 지났습니다!\n"
+                f"이제 다시 다른 디코방에 홍보하러 가실 시간입니다! 🚀"
+            ),
+            color=0xF1C40F,
+        )
+        # 멘션(알림 태그)과 함께 메시지 전송
+        await ctx.send(content=ctx.author.mention, embed=alarm_embed)
+
+    # 봇이 다른 채팅을 처리하는 데 방해되지 않도록 비동기 백그라운드 작업으로 실행
+    asyncio.create_task(send_reminder())
+
+# =========================
 # 기본 이벤트 처리
 # =========================
 @bot.event
@@ -2115,8 +2155,11 @@ async def on_message(message):
         embed.set_image(url=image_url)
         await message.channel.send(embed=embed)
         return
-
++
     await bot.process_commands(message)
+
+@bot.command(name="홍보", aliases=["홍보완료", "홍보알람"])
+async def promo_alarm(ctx):
 
 @bot.command()
 async def 인증패널(ctx): 
