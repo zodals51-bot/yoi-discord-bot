@@ -9,7 +9,7 @@ from datetime import datetime
 from dotenv import load_dotenv
 import random
 import asyncio
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 load_dotenv()
 
@@ -2117,10 +2117,12 @@ async def on_message(message):
     await bot.process_commands(message)
 
 
-# ⏰ 6시간 홍보 알람 명령어
+# ⏰ 6시간 홍보 알람 명령어 (한국 시각 KST 기준)
 @bot.command(name="홍보", aliases=["홍보완료", "홍보알람"])
 async def promo_alarm(ctx):
-    target_time = datetime.now() + timedelta(hours=6)
+    # 한국 표준시 (KST = UTC+9) 설정
+    KST = timezone(timedelta(hours=9))
+    target_time = datetime.now(KST) + timedelta(hours=6)
     time_str = target_time.strftime("%H시 %M분")
 
     embed = discord.Embed(
@@ -2146,7 +2148,6 @@ async def promo_alarm(ctx):
         await ctx.send(content=ctx.author.mention, embed=alarm_embed)
 
     asyncio.create_task(send_reminder())
-
 
 @bot.command()
 async def 인증패널(ctx):
